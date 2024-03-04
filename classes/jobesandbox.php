@@ -75,7 +75,7 @@ class qtype_coderunner_jobesandbox extends qtype_coderunner_sandbox {
         qtype_coderunner_sandbox::__construct();
 
         // Hack to force use of a local jobe host when behat testing.
-        if ($CFG->prefix == "bht_") {
+        if ($CFG->prefix == "bht_" || $CFG->prefix == "b_") {
             $this->jobeserver = "172.17.0.1:4000"; // "localhost:4000";
         } else {
             $this->jobeserver = get_config('qtype_coderunner', 'jobe_host');
