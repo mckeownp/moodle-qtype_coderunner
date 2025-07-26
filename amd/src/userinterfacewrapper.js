@@ -124,7 +124,110 @@
  */
 
 
+
+
+
+
+
 define(['core/templates', 'core/notification'], function(Templates, Notification) {
+
+
+    /**
+     * Checks that the textarea is an outer answer element which is where the overall
+     * answer is stored.
+     * That is, something like id_q58:5 answer
+     * rather than something like id_q58:5_answer_answer-code
+     *
+     * @param {string} textareaId - The id for the element containing the text representation of the answer.
+     * @returns {boolean} - Whether or not it's an outer answer element.
+     */
+    function isAnAnswer(textareaId) {
+        const pattern = /^id_q\d+:\d+_answer$/;
+        return pattern.test(textareaId);
+    }
+
+
+    /**
+     * Computers the SHA-256 hash for the current answer and compares it to the hash of
+     * the last checked answer.
+     * If they are different, changes the style on the relevant results div to show
+     * that the answer is different from the one that was checked.
+     *
+     * @async
+     * @function compare_with_last_checked
+     * @param {string} textareaId - The id for the element containing the text representation of the answer.
+     * @returns {Promise<string>} A promise that resolves to the SHA-256 hash in hexadecimal format.
+     */
+    async function compare_with_last_checked(textareaId) {
+        if (!textareaId || !isAnAnswer(textareaId)) {
+            return null;
+        }
+        const textArea = document.getElementById(textareaId);
+        const params = textArea.getAttribute('data-params');
+        if (params) {
+            const uiParams = JSON.parse(params);
+            const lastcheckedsha256 = uiParams.lastcheckedsha256; // Will be "" if no last answer.
+            const extractcodefromjson = uiParams.extractcodefromjson;
+            var currentanswer = textArea.value;
+            if (extractcodefromjson == "1") {
+                // Pull out the actual answer part from the JSON.
+                // Otherwise changes in UI variables, eg, expanded/unexpanded scratchpad
+                // will look like a changed answer.
+                try {
+                    const answerBits = JSON.parse(currentanswer);
+                    if ('answer_code' in answerBits) {
+                        // answer_code is currently the name in onstants::ANSWER_CODE_KEY
+                        currentanswer = answerBits.answer_code;
+                    }
+                    // Otherwise leave the answer as it is.
+                    // It could still be JSON, eg, a graphUI answer
+                    // But the marker will be expecting it
+                    // and it doesn't contain values that
+                    // aren't related to the answer.
+                } catch(error) {
+                        // couldn't decode JSON so it's not JSON...
+                    }
+            }
+
+            // Generate SHA256 of answer
+            const encoder = new TextEncoder();
+            const data = encoder.encode(currentanswer);
+            const hashBuffer = await crypto.subtle.digest("SHA-256", data);
+            const hashArray = Array.from(new Uint8Array(hashBuffer));
+            const hashHex = hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+
+            // Compare with last checked answer
+            if (lastcheckedsha256) {
+                var thisQuestionObject = textArea.closest('[id*="question"]');
+                var thisQuestionId = thisQuestionObject.id;
+                const escapedQuestionId = thisQuestionId.replace(/([:\\.#\[\],=])/g, '\\$1');
+                const areaToFind = '#' + escapedQuestionId + ' .coderunner-test-results';
+                var feedbackArea = document.querySelector(areaToFind);
+                if (feedbackArea) {
+                    const noticeId = textareaId + "-changed-notice";
+                    const specificNotice = document.querySelector(`[data-id="${CSS.escape(noticeId)}"]`);
+                    if (hashHex !== lastcheckedsha256) {
+                        if (!specificNotice) {
+                            feedbackArea.classList.add('answer-changed');
+                            const message = document.createElement("p");
+                            message.textContent = "Results below are for a different answer to your answer above.";
+                            message.style.color = "black";
+                            message.setAttribute("data-id", noticeId);
+                            feedbackArea.parentNode.insertBefore(message, feedbackArea);
+                            }
+                    } else {
+                        // revert back to normal.
+                        feedbackArea.classList.remove('answer-changed');
+                        if (specificNotice) {
+                            specificNotice.remove();
+                        }
+                    }
+                }
+            }
+            return hashHex;
+        }
+    }
+
     /**
      * Constructor for a new user interface.
      * @param {string} uiname The name of the interface element (e.g. ace, graph, etc)
@@ -142,6 +245,7 @@ define(['core/templates', 'core/notification'], function(Templates, Notification
      * element has a reference, current_ui_wrapper, to the UI wrapper.
      */
     function InterfaceWrapper(uiname, textareaId) {
+
         let t = this; // For use by embedded functions.
 
         this.GUTTER = 16;  // Size of gutter at base of wrapper Node (pixels)
@@ -152,7 +256,8 @@ define(['core/templates', 'core/notification'], function(Templates, Notification
         const MAX_GROWN_ROWS = 50;  // Upper limit to artifically grown textarea rows.
         const MIN_WRAPPER_HEIGHT = 50;
         this.isFullScreenEnable = null;
-        this.taId = textareaId;
+        this.taId = textareaId;  // Why is this different to the way it's stored in UI's
+        this.textareaId = textareaId;
         this.loadFailId = textareaId + '_loadfailerr';
         this.textArea = document.getElementById(textareaId);
         if (this.textArea.current_ui_wrapper) {
@@ -164,6 +269,7 @@ define(['core/templates', 'core/notification'], function(Templates, Notification
         } else {
             this.uiParams = {};
         }
+
         this.uiParams.lang = this.textArea.getAttribute('data-lang');
         this.readOnly = this.textArea.readOnly;
         this.isLoading = false;   // True if we're busy loading a UI element.
@@ -214,6 +320,9 @@ define(['core/templates', 'core/notification'], function(Templates, Notification
         this.uiInstance = null;  // Defined by loadUi asynchronously
         this.loadUi(uiname, this.uiParams);  // Load the required UI element
 
+        // Change result so that it is clear if the answer is different from the last checked answer.
+        compare_with_last_checked(textareaId);
+
         /**
          * Add event handlers
          */
@@ -232,6 +341,7 @@ define(['core/templates', 'core/notification'], function(Templates, Notification
             form.addEventListener('submit', function() {
                 if (t.uiInstance !== null) {
                     t.uiInstance.sync();
+                    compare_with_last_checked(t.textareaId);
                 }
             });
         }
@@ -253,8 +363,16 @@ define(['core/templates', 'core/notification'], function(Templates, Notification
                     t.restart();        // Reactivate
                 }
             }
+
+
         });
     }
+
+
+
+
+
+
 
     /**
      * Set the value of the allowFullScreen property.
@@ -400,12 +518,7 @@ define(['core/templates', 'core/notification'], function(Templates, Notification
                         t.loadFailed = false;
                         t.checkForResize();
 
-                        /*
-                         * Set a default syncIntervalSecs method if uiInstance lacks one.
-                         */
-                        let uiInstancePrototype = Object.getPrototypeOf(uiInstance);
-                        uiInstancePrototype.syncIntervalSecs = uiInstancePrototype.syncIntervalSecs || syncIntervalSecsBase;
-                        t.startSyncTimer(uiInstance);
+
                         let canDoFullScreen = t.isFullScreenEnable !== null ?
                             t.isFullScreenEnable : uiInstance.allowFullScreen?.();
                         if (canDoFullScreen) {
@@ -413,6 +526,13 @@ define(['core/templates', 'core/notification'], function(Templates, Notification
                         } else {
                             t.removeFullScreenButton(t.taId);
                         }
+                        /*
+                        * Set a default syncIntervalSecs method if uiInstance lacks one.
+                        */
+                        let uiInstancePrototype = Object.getPrototypeOf(uiInstance);
+                        uiInstancePrototype.syncIntervalSecs = uiInstancePrototype.syncIntervalSecs || syncIntervalSecsBase;
+                        t.startSyncTimer(uiInstance);
+                        t.startSyncTimerForAnswerWrapper(t.textareaId);
                     }
                     t.isLoading = false;
                 });
@@ -517,6 +637,25 @@ define(['core/templates', 'core/notification'], function(Templates, Notification
         }
     };
 
+
+    /**
+     * Start a sync timer on the answer wrapper, if it's a real answer text area.
+     * @param {string} textareaId The textareaId for the wrapper.
+     * timer is to be set up.
+     */
+    InterfaceWrapper.prototype.startSyncTimerForAnswerWrapper = function(textareaId) {
+        if (isAnAnswer(textareaId)){
+            this.timer = setInterval(
+                function () {
+                    compare_with_last_checked(textareaId);
+                    },
+                250);  // Every 250 ms.
+            }
+        };
+
+
+
+
     /**
      * Start a sync timer on the given uiInstance, unless its time interval is 0.
      * @param {object} uiInstance The instance of the user interface object whose
@@ -529,7 +668,7 @@ define(['core/templates', 'core/notification'], function(Templates, Notification
                 uiInstance.sync();
             }, timeout * 1000);
         } else {
-            this.uiInstance.timer = null;
+            this.uiInstance.time = null;
         }
     };
 

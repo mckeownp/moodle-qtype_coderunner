@@ -32,6 +32,7 @@ use qtype_coderunner\constants;
  */
 
 
+
 class qtype_coderunner_renderer extends qtype_renderer {
     /**
      * Generate the display of the formulation part of the question. This is the
@@ -130,13 +131,46 @@ class qtype_coderunner_renderer extends qtype_renderer {
             $currentanswer = "\n" . $currentanswer;
         }
 
+        $lastgradedstep = null;
+        $lastcheckedsha256 = "";
+
+        foreach ($qa->get_step_iterator() as $step) {
+            if ($step->has_behaviour_var('_try') || $step->get_behaviour_var('_precheck')) {
+                $lastgradedstep = $step;
+            }
+        }
+        if ($lastgradedstep) {
+            $lastcheckedanswer = $lastgradedstep->get_qt_var('answer');
+            if ($lastcheckedanswer) {
+                // TODO make this a util function of some sort
+                // Extract the code from JSON if this is a Scratchpad UI or similar.
+                // Note that this breaks the old python3_scratchpad question type
+                // where the template expects the full JSON string to be presented as
+                // the value of STUDENT_ANSWER. The fix is simply to change the template
+                // to use the value of STUDENT_ANSWER as given, rather than trying
+                // to extract the student answer itself.
+                if ($question->extractcodefromjson) {
+                    $json = json_decode($lastcheckedanswer, true);
+                    if ($json !== null && isset($json[constants::ANSWER_CODE_KEY])) {
+                        $lastcheckedanswer = $json[constants::ANSWER_CODE_KEY][0];
+                    }
+                }
+                $lastcheckedsha256 = hash('sha256', $lastcheckedanswer);
+            }
+        }
+
+
+
+
+
         $rows = isset($question->answerboxlines) ? $question->answerboxlines : constants::DEFAULT_NUM_ROWS;
         $taattributes = $this->answerbox_attributes(
             $responsefieldname,
             $rows,
             $question,
             $currentlanguage,
-            $options->readonly
+            $options->readonly,
+            $lastcheckedsha256,
         );
 
         $qtext .= html_writer::tag('textarea', s($currentanswer), $taattributes);
@@ -224,7 +258,6 @@ class qtype_coderunner_renderer extends qtype_renderer {
                 $optionsclone->generalfeedback = 1;
             }
         }
-
         return parent::feedback($qa, $optionsclone);
     }
 
@@ -818,13 +851,16 @@ class qtype_coderunner_renderer extends qtype_renderer {
         $rows,
         $question,
         $currentlanguage,
-        $readonly = false
+        $readonly = false,
+        $lastcheckedsha256 = "",
     ) {
-        if ($question->mergeduiparameters) {
-            $uiparamsjson = json_encode($question->mergeduiparameters);
-        } else {
-            $uiparamsjson = '{}';
-        }
+        // Add in the sha256 of the last checked student answer so that
+        // javascript can detect when the student's current answer
+        // is different from the last one they checked.
+        $question->mergeduiparameters["lastcheckedsha256"] = $lastcheckedsha256;
+        $question->mergeduiparameters["extractcodefromjson"] = $question->extractcodefromjson;
+
+        $uiparamsjson = json_encode($question->mergeduiparameters);
         $attributes = [
                 'class' => 'coderunner-answer edit_code',
                 'name' => $fieldname,
