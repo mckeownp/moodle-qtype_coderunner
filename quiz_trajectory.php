@@ -46,9 +46,7 @@ define('NO_OUTPUT_BUFFERING', true);
 require_once(__DIR__ . '/../../../config.php');
 require_once($CFG->libdir . '/adminlib.php');
 
-// =========================================================================
-// Access control
-// =========================================================================
+// Access control.
 require_login();
 
 $systemcontext = context_system::instance();
@@ -60,23 +58,19 @@ $PAGE->set_url(new moodle_url('/question/type/coderunner/quiz_trajectory.php'));
 $PAGE->set_title('CodeRunner: Quiz mark trajectories');
 $PAGE->set_heading('CodeRunner: Quiz mark trajectories');
 
-// =========================================================================
-// Parameters
-// =========================================================================
-$mode         = optional_param('mode',       'table', PARAM_ALPHA);   // 'table' or 'trajectory'
-$courseid     = optional_param('courseid',   0,       PARAM_INT);
-$quizid       = optional_param('quizid',     0,       PARAM_INT);     // quiz instance id
-$studentid    = optional_param('studentid',  0,       PARAM_INT);     // for trajectory mode
-$gapminutes   = optional_param('gapminutes', 30,      PARAM_INT);
-$debug        = optional_param('debug', 0, PARAM_INT);     // 1 = dump raw step data
+// Parameters.
+$mode         = optional_param('mode', 'table', PARAM_ALPHA);   // Either 'table' or 'trajectory'.
+$courseid     = optional_param('courseid', 0, PARAM_INT);
+$quizid       = optional_param('quizid', 0, PARAM_INT);     // Quiz instance id.
+$studentid    = optional_param('studentid', 0, PARAM_INT);     // For trajectory mode.
+$gapminutes   = optional_param('gapminutes', 30, PARAM_INT);
+$debug        = optional_param('debug', 0, PARAM_INT);     // 1 = dump raw step data.
 
 $starttime = 0;
 $endtime   = PHP_INT_MAX;
 $gapseconds = max(1, $gapminutes) * 60;
 
-// =========================================================================
-// Helper: courses the current user may report on
-// =========================================================================
+// Helper: courses the current user may report on.
 function get_allowed_courses() {
     global $DB, $USER, $issiteadmin, $staffrolenames;
 
@@ -86,7 +80,7 @@ function get_allowed_courses() {
         return $courses;
     }
 
-    list($rolesql, $roleparams) = $DB->get_in_or_equal($staffrolenames, SQL_PARAMS_NAMED, 'role');
+    [$rolesql, $roleparams] = $DB->get_in_or_equal($staffrolenames, SQL_PARAMS_NAMED, 'role');
     $sql = "SELECT DISTINCT c.id, c.fullname
               FROM {course} c
               JOIN {context} ctx ON ctx.instanceid = c.id AND ctx.contextlevel = :ctxlevel
@@ -101,9 +95,7 @@ function get_allowed_courses() {
     return $DB->get_records_sql_menu($sql, $params);
 }
 
-// =========================================================================
-// Helper: quizzes in a course
-// =========================================================================
+// Helper: quizzes in a course.
 function get_course_quizzes($courseid) {
     global $DB;
     $sql = "SELECT q.id, q.name
@@ -116,9 +108,7 @@ function get_course_quizzes($courseid) {
     return $DB->get_records_sql_menu($sql, ['courseid' => $courseid]);
 }
 
-// =========================================================================
-// Helper: get the course-module id for a quiz instance
-// =========================================================================
+// Helper: get the course-module id for a quiz instance.
 function get_cmid_for_quiz($quizid) {
     global $DB;
     return (int)$DB->get_field_sql(
@@ -130,9 +120,7 @@ function get_cmid_for_quiz($quizid) {
     );
 }
 
-// =========================================================================
-// Helper: students enrolled in a course (student role only)
-// =========================================================================
+// Helper: students enrolled in a course (student role only).
 function get_enrolled_students($courseid) {
     global $DB;
     $sql = "SELECT DISTINCT u.id, u.firstname, u.lastname
@@ -146,13 +134,11 @@ function get_enrolled_students($courseid) {
     return $DB->get_records_sql($sql, ['ctxlevel' => CONTEXT_COURSE, 'courseid' => $courseid]);
 }
 
-// =========================================================================
 // Helper: questions in a quiz, in slot order
 // Returns array of objects with: slot, maxmark
 // Random question slots are included (they have no entry in question_references).
 // Description slots are excluded.
 // qnum is assigned sequentially to match the numbers Moodle shows students.
-// =========================================================================
 function get_quiz_questions($quizid) {
     global $DB;
     // Random question slots have no entry in question_references (they use
@@ -205,18 +191,16 @@ function get_quiz_questions($quizid) {
     return array_values($rows);
 }
 
-// =========================================================================
 // Core: scan log events for one student in one quiz context and identify
 // idle gaps (consecutive events more than $gapseconds apart).
 //
 // Fills $gaps with one entry per gap:
-//   ['rawstart' => int, 'rawend' => int, 'cumstart' => float]
+// ['rawstart' => int, 'rawend' => int, 'cumstart' => float]
 // where rawstart/rawend are the raw Unix timestamps bracketing the gap and
 // cumstart is the cumulative active seconds at which the gap begins.
 //
 // Returns the raw timestamp of the first log event, or null if there are
 // none (in which case $gaps is set to []).
-// =========================================================================
 function build_gap_intervals($userid, $contextid, $starttime, $endtime, $gapseconds, &$gaps) {
     global $DB;
 
@@ -258,7 +242,6 @@ function build_gap_intervals($userid, $contextid, $starttime, $endtime, $gapseco
     return $firstraw;
 }
 
-// =========================================================================
 // Core: convert a raw Unix timestamp to cumulative active seconds.
 //
 // Log events are used only to identify idle gaps; the step timestamp itself
@@ -267,7 +250,6 @@ function build_gap_intervals($userid, $contextid, $starttime, $endtime, $gapseco
 // cumulative_active(T) = (T - firstraw) - total idle time before T
 //
 // Returns null if $firstraw is null (no log events) or $rawt < $firstraw.
-// =========================================================================
 function raw_to_cum($rawt, $firstraw, $gaps) {
     if ($firstraw === null || $rawt < $firstraw) {
         return null;
@@ -282,21 +264,19 @@ function raw_to_cum($rawt, $firstraw, $gaps) {
     return $rawt - $firstraw - $idle;
 }
 
-// =========================================================================
 // Core: analyse one student's attempt on a quiz.
 //
 // Returns an object with:
-//   ->questions   : array indexed by slot (1-based) of objects:
-//                     slot, questionid, maxmark, bestmark, best_cum (seconds),
-//                     time_on_q (seconds, or null if never scored)
-//   ->tstart      : cumulative time of quiz attempt start (seconds)
-//   ->trajectory  : array of {cum_minutes, cummarks, qlabel} sorted by cum,
-//                   representing each mark-change event
-//   ->gaps        : array of gap intervals, each with rawstart, rawend, cumstart
-//   ->firstraw    : raw Unix timestamp of the first log event
+// ->questions   : array indexed by slot (1-based) of objects:
+// slot, questionid, maxmark, bestmark, best_cum (seconds),
+// time_on_q (seconds, or null if never scored)
+// ->tstart      : cumulative time of quiz attempt start (seconds)
+// ->trajectory  : array of {cum_minutes, cummarks, qlabel} sorted by cum,
+// representing each mark-change event
+// ->gaps        : array of gap intervals, each with rawstart, rawend, cumstart
+// ->firstraw    : raw Unix timestamp of the first log event
 //
 // Returns null if the student has no log events in the quiz context.
-// =========================================================================
 function analyse_student($userid, $quizid, $cmid, $questions, $starttime, $endtime, $gapseconds) {
     global $DB;
 
@@ -356,7 +336,7 @@ function analyse_student($userid, $quizid, $cmid, $questions, $starttime, $endti
     // numbers from quiz_slots (via $questions), to avoid any off-by-one
     // discrepancy between quiz_slots.slot and question_attempts.slot.
     // We key by questionattemptid so each step can be looked up directly.
-    $qaid_to_slot = [];
+    $qaidtoslot = [];
     $slotbest = [];
     foreach ($questions as $q) {
         $slotbest[(int)$q->slot] = (object)[
@@ -367,7 +347,7 @@ function analyse_student($userid, $quizid, $cmid, $questions, $starttime, $endti
         ];
     }
     // Fetch the mapping from question_attempt id -> quiz_slots.slot for this quiz/user.
-    $qaid_rows = $DB->get_records_sql(
+    $qaidrows = $DB->get_records_sql(
         "SELECT qa.id AS qaid, qs.slot
            FROM {question_attempts} qa
            JOIN {quiz_attempts} quiza ON quiza.uniqueid = qa.questionusageid
@@ -376,12 +356,12 @@ function analyse_student($userid, $quizid, $cmid, $questions, $starttime, $endti
             AND quiza.userid = :userid",
         ['quizid' => $quizid, 'userid' => $userid]
     );
-    foreach ($qaid_rows as $row) {
-        $qaid_to_slot[(int)$row->qaid] = (int)$row->slot;
+    foreach ($qaidrows as $row) {
+        $qaidtoslot[(int)$row->qaid] = (int)$row->slot;
     }
 
     foreach ($steps as $step) {
-        $slot = $qaid_to_slot[(int)$step->questionattemptid] ?? null;
+        $slot = $qaidtoslot[(int)$step->questionattemptid] ?? null;
         if ($slot === null || !isset($slotbest[$slot])) {
             continue;
         }
@@ -399,7 +379,7 @@ function analyse_student($userid, $quizid, $cmid, $questions, $starttime, $endti
 
     // Compute T_i = b_i - max(b_j : j != i, b_j < b_i), falling back to tstart.
     // Collect all b values that are defined (bestmark > 0 or == 0 but attempted).
-    $bvals = []; // cum => slot, for all slots where best_cum is set and bestmark >= 0
+    $bvals = []; // Cumulative time => slot, for slots where best_cum is set and bestmark >= 0.
     foreach ($slotbest as $slot => $info) {
         if ($info->best_cum !== null && $info->bestmark >= 0) {
             $bvals[$slot] = $info->best_cum;
@@ -429,14 +409,14 @@ function analyse_student($userid, $quizid, $cmid, $questions, $starttime, $endti
 
         if ($info->best_cum !== null && $info->bestmark > 0) {
             // Find max(b_j : j != slot, b_j < b_i).
-            $b_i      = $info->best_cum;
-            $prev_b   = $tstart; // fallback
+            $bi      = $info->best_cum;
+            $prevb   = $tstart; // Fallback.
             foreach ($bvals as $j => $bj) {
-                if ($j !== $slot && $bj < $b_i && $bj > $prev_b) {
-                    $prev_b = $bj;
+                if ($j !== $slot && $bj < $bi && $bj > $prevb) {
+                    $prevb = $bj;
                 }
             }
-            $obj->time_on_q = $b_i - $prev_b;
+            $obj->time_on_q = $bi - $prevb;
         }
 
         $result->questions[$slot] = $obj;
@@ -473,25 +453,21 @@ function analyse_student($userid, $quizid, $cmid, $questions, $starttime, $endti
     return $result;
 }
 
-// =========================================================================
-// Gate: user must have access to at least one course
-// =========================================================================
+// Gate: user must have access to at least one course.
 $allowedcourses = get_allowed_courses();
 if (empty($allowedcourses)) {
     require_capability('moodle/site:config', $systemcontext);
 }
 if ($courseid && !isset($allowedcourses[$courseid])) {
-    print_error('accessdenied', 'admin');
+    throw new \moodle_exception('accessdenied', 'admin');
 }
 
 $quizzes    = $courseid ? get_course_quizzes($courseid) : [];
 $questions  = ($quizid) ? get_quiz_questions($quizid) : [];
 $students   = $courseid ? get_enrolled_students($courseid) : [];
-$quizcmid   = $quizid  ? get_cmid_for_quiz($quizid) : 0;
+$quizcmid   = $quizid ? get_cmid_for_quiz($quizid) : 0;
 
-// =========================================================================
-// TRAJECTORY MODE
-// =========================================================================
+// Trajectory mode.
 if ($mode === 'trajectory' && $quizid && $studentid && $quizcmid) {
     $student = $DB->get_record('user', ['id' => $studentid], 'id,firstname,lastname', MUST_EXIST);
     $quiz    = $DB->get_record('quiz', ['id' => $quizid], 'id,name', MUST_EXIST);
@@ -537,9 +513,9 @@ if ($mode === 'trajectory' && $quizid && $studentid && $quizcmid) {
         }
     }
 
-    $chartpointsJson = json_encode($chartpoints);
-    $gaplinesJson    = json_encode($gaplines);
-    $quizmaxJson     = json_encode((float)$quizmax);
+    $chartpointsjson = json_encode($chartpoints);
+    $gaplinesjson    = json_encode($gaplines);
+    $quizmaxjson     = json_encode((float)$quizmax);
     $studentname     = json_encode(fullname($student));
     $quizname        = json_encode($quiz->name);
 
@@ -550,9 +526,9 @@ if ($mode === 'trajectory' && $quizid && $studentid && $quizcmid) {
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
 <script>
 (function() {
-    var points    = {$chartpointsJson};
-    var gaplines  = {$gaplinesJson};
-    var quizmax   = {$quizmaxJson};
+    var points    = {$chartpointsjson};
+    var gaplines  = {$gaplinesjson};
+    var quizmax   = {$quizmaxjson};
 
     // Piecewise-constant (stepped) trajectory.
     // For each mark-change point we emit two chart points:
@@ -704,32 +680,40 @@ HTML;
     exit;
 }
 
-// =========================================================================
-// TABLE MODE
-// =========================================================================
+// Table mode.
 echo $OUTPUT->header();
 echo html_writer::tag('h2', 'Quiz mark trajectories &amp; per-question times');
 
 // Reload page when course changes to refresh quiz list.
-// (Inline script - js_amd_inline is unreliable in standalone scripts.)
+// Inline script; js_amd_inline is unreliable in standalone scripts.
 
-// ---- Form ----
+// Form section.
 echo html_writer::start_tag('form', ['method' => 'get', 'action' => $PAGE->url]);
 echo html_writer::start_tag('table', ['class' => 'generaltable']);
 
 // Course.
 echo html_writer::start_tag('tr');
 echo html_writer::tag('td', html_writer::tag('label', 'Course:', ['for' => 'id_courseid']));
-echo html_writer::tag('td', html_writer::select($allowedcourses, 'courseid', $courseid,
-    ['0' => '-- select --'], ['id' => 'id_courseid']));
+echo html_writer::tag('td', html_writer::select(
+    $allowedcourses,
+    'courseid',
+    $courseid,
+    ['0' => '-- select --'],
+    ['id' => 'id_courseid']
+));
 echo html_writer::end_tag('tr');
 
 // Quiz (only once course chosen).
 if ($courseid) {
     echo html_writer::start_tag('tr');
     echo html_writer::tag('td', html_writer::tag('label', 'Quiz:', ['for' => 'id_quizid']));
-    echo html_writer::tag('td', html_writer::select($quizzes, 'quizid', $quizid,
-        ['0' => '-- select --'], ['id' => 'id_quizid']));
+    echo html_writer::tag('td', html_writer::select(
+        $quizzes,
+        'quizid',
+        $quizid,
+        ['0' => '-- select --'],
+        ['id' => 'id_quizid']
+    ));
     echo html_writer::end_tag('tr');
 }
 
@@ -744,8 +728,10 @@ echo html_writer::end_tag('tr');
 // Submit.
 echo html_writer::start_tag('tr');
 echo html_writer::tag('td', '');
-echo html_writer::tag('td', html_writer::empty_tag('input',
-    ['type' => 'submit', 'value' => 'Analyse', 'class' => 'btn btn-primary']));
+echo html_writer::tag('td', html_writer::empty_tag(
+    'input',
+    ['type' => 'submit', 'value' => 'Analyse', 'class' => 'btn btn-primary']
+));
 echo html_writer::end_tag('tr');
 
 echo html_writer::end_tag('table');
@@ -762,11 +748,11 @@ document.addEventListener("DOMContentLoaded", function() {
 });
 </script>';
 
-// ---- Results ----
+// Results section.
 if ($courseid && $quizid && $quizcmid) {
-
     $quiz = $DB->get_record('quiz', ['id' => $quizid], 'id,name', MUST_EXIST);
-    echo html_writer::tag('p',
+    echo html_writer::tag(
+        'p',
         "Quiz: <strong>" . s($quiz->name) . "</strong> &mdash; " .
         "idle gap: <strong>{$gapminutes} min</strong>"
     );
@@ -784,7 +770,7 @@ if ($courseid && $quizid && $quizcmid) {
     }
 
     // Analyse each student.
-    $alldata   = [];  // userid => result object (or null)
+    $alldata   = [];  // User ID => result object (or null).
     $colsums   = array_fill(0, $nquestions, 0.0);
     $colcounts = array_fill(0, $nquestions, 0);
 
@@ -898,15 +884,17 @@ if ($courseid && $quizid && $quizcmid) {
             $avgrow[] = '&mdash;';
         }
     }
-    $avgrow[] = html_writer::tag('strong',
-        $grandcount > 0 ? number_format($grandtotal, 1) : '&mdash;');
+    $avgrow[] = html_writer::tag(
+        'strong',
+        $grandcount > 0 ? number_format($grandtotal, 1) : '&mdash;'
+    );
     $table->data[] = $avgrow;
 
     // CSV export — build and offer download if requested.
     $csvdownload = optional_param('csvdownload', 0, PARAM_INT);
     if ($csvdownload) {
-        $quiz_obj = $DB->get_record('quiz', ['id' => $quizid], 'name', MUST_EXIST);
-        $filename = 'quiz_times_' . clean_filename($quiz_obj->name) . '_' . date('Ymd') . '.csv';
+        $quizobj = $DB->get_record('quiz', ['id' => $quizid], 'name', MUST_EXIST);
+        $filename = 'quiz_times_' . clean_filename($quizobj->name) . '_' . date('Ymd') . '.csv';
         header('Content-Type: text/csv; charset=utf-8');
         header('Content-Disposition: attachment; filename="' . $filename . '"');
         header('Cache-Control: no-cache, no-store');
@@ -962,7 +950,8 @@ if ($courseid && $quizid && $quizcmid) {
         'gapminutes'  => $gapminutes,
         'csvdownload' => 1,
     ]);
-    echo html_writer::tag('p',
+    echo html_writer::tag(
+        'p',
         html_writer::link($csvurl, 'Download as CSV', ['class' => 'btn btn-sm btn-secondary'])
     );
 
