@@ -31,7 +31,7 @@
 
  * Updates to grade caching.
    - Scheduled task purges old cache entries automatically (only if using FileStore)
-   - Manual grade-cache cleaner available (script cachepurgeindex.php)
+   - Manual grade-cache cleaner available (script cachepurge.php)
    - Fix for issue #261 Unsupported modification of PAGE->context
 
  * Extended bulk-tester capabilites

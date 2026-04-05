@@ -33,8 +33,8 @@
  * their best mark on question i.  If no other question was completed before
  * b_i, T_start (first log event in the quiz context) is used instead.
  *
- * Place this file inside question/type/coderunner/ and access it as:
- *   https://<your-moodle>/question/type/coderunner/quiz_trajectory.php
+ * Place this file inside question/type/coderunner/scripts/ and access it as:
+ *   https://<your-moodle>/question/type/coderunner/scripts/quiz_trajectory.php
  *
  * @package   qtype_coderunner
  * @copyright  2024 Richard Lobb, University of Canterbury
@@ -43,7 +43,7 @@
 
 define('NO_OUTPUT_BUFFERING', true);
 
-require_once(__DIR__ . '/../../../config.php');
+require_once(__DIR__ . '/../../../../config.php');
 require_once($CFG->libdir . '/adminlib.php');
 
 // Access control.
@@ -54,7 +54,7 @@ $issiteadmin   = has_capability('moodle/site:config', $systemcontext);
 $staffrolenames = ['manager', 'coursecreator', 'editingteacher', 'teacher'];
 
 $PAGE->set_context($systemcontext);
-$PAGE->set_url(new moodle_url('/question/type/coderunner/quiz_trajectory.php'));
+$PAGE->set_url(new moodle_url('/question/type/coderunner/scripts/quiz_trajectory.php'));
 $PAGE->set_title('CodeRunner: Quiz mark trajectories');
 $PAGE->set_heading('CodeRunner: Quiz mark trajectories');
 
@@ -477,7 +477,7 @@ if ($mode === 'trajectory' && $quizid && $studentid && $quizcmid) {
     echo $OUTPUT->header();
 
     // Back link.
-    $backurl = new moodle_url('/question/type/coderunner/quiz_trajectory.php', [
+    $backurl = new moodle_url('/question/type/coderunner/scripts/quiz_trajectory.php', [
         'courseid'   => $courseid,
         'quizid'     => $quizid,
         'gapminutes' => $gapminutes,
@@ -791,7 +791,7 @@ if ($courseid && $quizid && $quizcmid) {
     }
 
     // Base URL for trajectory links.
-    $trajbase = new moodle_url('/question/type/coderunner/quiz_trajectory.php', [
+    $trajbase = new moodle_url('/question/type/coderunner/scripts/quiz_trajectory.php', [
         'mode'       => 'trajectory',
         'courseid'   => $courseid,
         'quizid'     => $quizid,
@@ -944,7 +944,7 @@ if ($courseid && $quizid && $quizcmid) {
     }
 
     // CSV download link.
-    $csvurl = new moodle_url('/question/type/coderunner/quiz_trajectory.php', [
+    $csvurl = new moodle_url('/question/type/coderunner/scripts/quiz_trajectory.php', [
         'courseid'    => $courseid,
         'quizid'      => $quizid,
         'gapminutes'  => $gapminutes,

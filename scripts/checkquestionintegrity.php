@@ -32,7 +32,7 @@ use moodle_url;
 
 define('NO_OUTPUT_BUFFERING', true);
 
-require_once(__DIR__ . '/../../../config.php');
+require_once(__DIR__ . '/../../../../config.php');
 require_once($CFG->libdir . '/questionlib.php');
 
 // Get the parameter from the URL.
@@ -65,13 +65,13 @@ if (!$includesystem && !$contextid) {
     );
     echo html_writer::end_tag('div');
     echo html_writer::tag('p', 'Please access this tool from the deletion index page, which provides context-specific links.');
-    $backurl = new moodle_url('/question/type/coderunner/deleteoldquestionversionsindex.php');
+    $backurl = new moodle_url('/question/type/coderunner/scripts/deleteoldquestionversions.php');
     echo html_writer::link($backurl, '← Back to deletion tool', ['class' => 'btn btn-secondary']);
     echo $OUTPUT->footer();
     exit;
 }
 
-$PAGE->set_url('/question/type/coderunner/checkquestionintegrity.php', ['contextid' => $contextid]);
+$PAGE->set_url('/question/type/coderunner/scripts/checkquestionintegrity.php', ['contextid' => $contextid]);
 $PAGE->set_context($context);
 $PAGE->set_title('Question Database Integrity Check');
 
@@ -318,13 +318,13 @@ if ($issuesfound === 0) {
         echo html_writer::end_tag('div');
 
         $rerunurl = new moodle_url(
-            '/question/type/coderunner/checkquestionintegrity.php',
+            '/question/type/coderunner/scripts/checkquestionintegrity.php',
             ['contextid' => $contextid]
         );
         echo html_writer::link($rerunurl, 'Re-run Check', ['class' => 'btn btn-primary']);
     } else {
         $fixurl = new moodle_url(
-            '/question/type/coderunner/checkquestionintegrity.php',
+            '/question/type/coderunner/scripts/checkquestionintegrity.php',
             ['contextid' => $contextid, 'fix' => 1, 'sesskey' => sesskey()]
         );
         echo html_writer::link($fixurl, 'Fix Issues', ['class' => 'btn btn-warning']);
@@ -335,7 +335,7 @@ if ($issuesfound === 0) {
     }
 }
 
-$backurl = new moodle_url('/question/type/coderunner/deleteoldquestionversionsindex.php');
+$backurl = new moodle_url('/question/type/coderunner/scripts/deleteoldquestionversions.php');
 echo html_writer::link($backurl, '← Back to deletion tool', ['class' => 'btn btn-secondary', 'style' => 'margin-left: 0.5rem;']);
 
 echo $OUTPUT->footer();

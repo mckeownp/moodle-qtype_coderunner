@@ -36,16 +36,15 @@ require_login();
 // Set up page.
 $PAGE->set_url('/question/type/coderunner/management.php');
 $PAGE->set_context($context);
-$PAGE->set_title('CodeRunner Management');
-$PAGE->set_heading('CodeRunner Management Dashboard');
+$PAGE->set_title(get_string('mgmt_page_title', 'qtype_coderunner'));
+$PAGE->set_heading(get_string('mgmt_page_heading', 'qtype_coderunner'));
 
 // Display.
 echo $OUTPUT->header();
 
 echo html_writer::tag(
     'p',
-    'Central access point for CodeRunner administration and management tools. ' .
-    'Select a category below to access the tools you need.'
+    get_string('mgmt_intro', 'qtype_coderunner')
 );
 
 /**
@@ -76,13 +75,12 @@ function display_tool_card($title, $description, $url, $icon = '', $color = 'def
         echo html_writer::tag('i', '', ['class' => "$icon fa-2x mb-2", 'style' => 'color: #0073aa;']);
     }
 
-    echo html_writer::tag('h5', $title, ['class' => 'card-title']);
-    echo html_writer::tag('p', $description, ['class' => 'card-text']);
-
     $toolurl = new moodle_url($url);
+    echo html_writer::tag('h5', html_writer::link($toolurl, $title), ['class' => 'card-title']);
+    echo html_writer::tag('p', $description, ['class' => 'card-text']);
     echo html_writer::link(
         $toolurl,
-        'Open Tool →',
+        get_string('mgmt_open_tool', 'qtype_coderunner'),
         ['class' => 'btn btn-primary btn-sm']
     );
 
@@ -104,26 +102,23 @@ function display_category($title, $description) {
 
 // Testing & Validation.
 display_category(
-    'Testing & Validation',
-    'Tools for testing questions and browsing question banks.'
+    get_string('mgmt_cat_testing_title', 'qtype_coderunner'),
+    get_string('mgmt_cat_testing_desc', 'qtype_coderunner')
 );
 echo html_writer::start_tag('div', ['class' => 'row']);
 
 display_tool_card(
-    'Bulk Tester',
-    'Test multiple CodeRunner questions in bulk to verify they work correctly. ' .
-    'Run all tests for selected subsets of questions and see detailed results.',
-    '/question/type/coderunner/bulktestindex.php',
+    get_string('mgmt_tool_bulktester_title', 'qtype_coderunner'),
+    get_string('mgmt_tool_bulktester_desc', 'qtype_coderunner'),
+    '/question/type/coderunner/scripts/bulktest.php',
     'fa fa-flask',
     'primary'
 );
 
 display_tool_card(
-    'Question Browser',
-    'Browse and search through CodeRunner questions. View question text, ' .
-    'answer, tags and quiz usage. Preview questions or edit them in the question ' .
-    'bank. Useful for finding and reviewing questions.',
-    '/question/type/coderunner/questionbrowserindex.php',
+    get_string('mgmt_tool_questionbrowser_title', 'qtype_coderunner'),
+    get_string('mgmt_tool_questionbrowser_desc', 'qtype_coderunner'),
+    '/question/type/coderunner/scripts/questionbrowser.php',
     'fa fa-search',
     'info'
 );
@@ -132,26 +127,23 @@ echo html_writer::end_tag('div'); // Row.
 
 // Maintenance.
 display_category(
-    'Maintenance',
-    'Tools for maintaining question banks and database integrity.'
+    get_string('mgmt_cat_maintenance_title', 'qtype_coderunner'),
+    get_string('mgmt_cat_maintenance_desc', 'qtype_coderunner')
 );
 echo html_writer::start_tag('div', ['class' => 'row']);
 
 display_tool_card(
-    'Delete Old Question Versions',
-    'Clean up bloated question banks by deleting old question versions. ' .
-    'Works for all question types. Keeps only the most recent version of each question.',
-    '/question/type/coderunner/deleteoldquestionversionsindex.php',
+    get_string('mgmt_tool_deleteold_title', 'qtype_coderunner'),
+    get_string('mgmt_tool_deleteold_desc', 'qtype_coderunner'),
+    '/question/type/coderunner/scripts/deleteoldquestionversions.php',
     'fa fa-trash',
     'warning'
 );
 
 display_tool_card(
-    'Cache Purge',
-    'Clear the CodeRunner job runs cache for selected courses or contexts. ' .
-    'Reduces disk space usage. Required after updates to Jobe servers that might ' .
-    'alter run results.',
-    '/question/type/coderunner/cachepurgeindex.php',
+    get_string('mgmt_tool_cachepurge_title', 'qtype_coderunner'),
+    get_string('mgmt_tool_cachepurge_desc', 'qtype_coderunner'),
+    '/question/type/coderunner/scripts/cachepurge.php',
     'fa fa-refresh',
     'default'
 );
@@ -160,25 +152,23 @@ echo html_writer::end_tag('div'); // Row.
 
 // Data Export.
 display_category(
-    'Data Export',
-    'Tools for exporting quiz attempt data for analysis and research.'
+    get_string('mgmt_cat_dataexport_title', 'qtype_coderunner'),
+    get_string('mgmt_cat_dataexport_desc', 'qtype_coderunner')
 );
 echo html_writer::start_tag('div', ['class' => 'row']);
 
 display_tool_card(
-    'Download Quiz Attempts',
-    'Export quiz attempt data for analysis. Download student submissions, ' .
-    'code responses, and results in various formats for grading review and analysis.',
-    '/question/type/coderunner/downloadquizattempts.php',
+    get_string('mgmt_tool_downloadattempts_title', 'qtype_coderunner'),
+    get_string('mgmt_tool_downloadattempts_desc', 'qtype_coderunner'),
+    '/question/type/coderunner/scripts/downloadquizattempts.php',
     'fa fa-download',
     'success'
 );
 
 display_tool_card(
-    'Download Quiz Attempts (Anonymized)',
-    'Export anonymized quiz attempt data for research purposes. ' .
-    'Removes personally identifiable information for use in studies subject to ethics approval.',
-    '/question/type/coderunner/downloadquizattemptsanon.php',
+    get_string('mgmt_tool_downloadattempts_anon_title', 'qtype_coderunner'),
+    get_string('mgmt_tool_downloadattempts_anon_desc', 'qtype_coderunner'),
+    '/question/type/coderunner/scripts/downloadquizattemptsanon.php',
     'fa fa-user-secret',
     'success'
 );
@@ -187,16 +177,15 @@ echo html_writer::end_tag('div'); // Row.
 
 // Prototype Management.
 display_category(
-    'Prototype Management',
-    'Tools for managing and analyzing CodeRunner question prototypes.'
+    get_string('mgmt_cat_prototype_title', 'qtype_coderunner'),
+    get_string('mgmt_cat_prototype_desc', 'qtype_coderunner')
 );
 echo html_writer::start_tag('div', ['class' => 'row']);
 
 display_tool_card(
-    'Prototype Usage',
-    'Analyze which prototypes are being used across your question banks. ' .
-    'See usage statistics and identify unused prototypes.',
-    '/question/type/coderunner/prototypeusageindex.php',
+    get_string('mgmt_tool_prototypeusage_title', 'qtype_coderunner'),
+    get_string('mgmt_tool_prototypeusage_desc', 'qtype_coderunner'),
+    '/question/type/coderunner/scripts/prototypeusage.php',
     'fa fa-pie-chart',
     'primary'
 );

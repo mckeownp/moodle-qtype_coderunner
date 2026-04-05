@@ -1,635 +1,46 @@
-<?php
-// This file is part of CodeRunner - http://coderunner.org.nz
+// This file is part of Moodle - http://moodle.org/
 //
-// CodeRunner is free software: you can redistribute it and/or modify
+// Moodle is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
 // the Free Software Foundation, either version 3 of the License, or
 // (at your option) any later version.
 //
-// CodeRunner is distributed in the hope that it will be useful,
+// Moodle is distributed in the hope that it will be useful,
 // but WITHOUT ANY WARRANTY; without even the implied warranty of
 // MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
 // GNU General Public License for more details.
 //
 // You should have received a copy of the GNU General Public License
-// along with CodeRunner.  If not, see <http://www.gnu.org/licenses/>.
+// along with Moodle.  If not, see <http://www.gnu.org/licenses/>.
 
 /**
- * Simplified Question Browser that generates data inline.
- * Enhanced with advanced filter builder.
+ * AMD module for the CodeRunner question browser.
  *
- * @package   qtype_coderunner
- * @copyright 2025 Richard Lobb, The University of Canterbury
- * @license   http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
+ * Renders a filterable, sortable table of all CodeRunner questions in a
+ * Moodle context, with per-question detail view, JSON/CSV export, and
+ * an advanced filter builder.
+ *
+ * Initialised from questionbrowser.php via $PAGE->requires->js_call_amd().
+ *
+ * @module     qtype_coderunner/questionbrowser
+ * @copyright  2025 Richard Lobb, The University of Canterbury
+ * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
 
-namespace qtype_coderunner;
-
-use html_writer;
-
-define('NO_OUTPUT_BUFFERING', true);
-
-require_once(__DIR__ . '/../../../config.php');
-require_once($CFG->libdir . '/questionlib.php');
-require_once(__DIR__ . '/classes/bulk_tester.php');
-
-// Get the parameter from the URL.
-$contextid = required_param('contextid', PARAM_INT);
-
-// Login and check permissions.
-require_login();
-$context = \context::instance_by_id($contextid);
-require_capability('moodle/question:editall', $context);
-
-// Get course name for display.
-$coursename = '';
-if ($context->contextlevel == CONTEXT_COURSE) {
-    $course = $DB->get_record('course', ['id' => $context->instanceid], 'fullname');
-    $coursename = $course ? $course->fullname : 'Unknown Course (' . $contextid . ')';
-} else if ($context->contextlevel == CONTEXT_MODULE) {
-    $cm = get_coursemodule_from_id(false, $context->instanceid, 0, false, MUST_EXIST);
-    $course = $DB->get_record('course', ['id' => $cm->course], 'fullname');
-    $coursename = $course ? $course->fullname : 'Unknown Course (' . $contextid . ')';
-} else {
-    $coursename = $context->get_context_name() . ' (' . $contextid . ')';
-}
-
-// Generate questions data directly.
-$generator = new questions_json_generator($context);
-$questions = $generator->generate_questions_data();
-$questionsjson = json_encode($questions, JSON_UNESCAPED_UNICODE);
-
-// Get the correct Moodle base URL for JavaScript.
-global $CFG;
-$moodlebaseurl = $CFG->wwwroot;
-
-$urlparams = ['contextid' => $context->id];
-$PAGE->set_url('/question/type/coderunner/questionbrowser.php', $urlparams);
-$PAGE->set_context($context);
-$PAGE->set_title("Question browser");
-
-if ($context->contextlevel == CONTEXT_MODULE) {
-    $cm = get_coursemodule_from_id(false, $context->instanceid, 0, false, MUST_EXIST);
-    $PAGE->set_cm($cm, $DB->get_record('course', ['id' => $cm->course], '*', MUST_EXIST));
-}
-
-/**
- * Class to generate questions.json from database.
- */
-class questions_json_generator {
-    private $context;
-    private $usagemap;
-
-    public function __construct($context) {
-        $this->context = $context;
-    }
+define([], function() {
 
     /**
-     * Generate the complete questions data array.
+     * Initialise the question browser.
+     * Data is passed via $PAGE->requires->data_for_js('qbrowserInitData', ...) in PHP.
      */
-    public function generate_questions_data() {
-        $questions = bulk_tester::get_all_coderunner_questions_in_context($this->context->id, false);
-
-        // Fetch quiz usage for all questions in one bulk query.
-        $this->usagemap = $this->fetch_quiz_usage_bulk($questions);
-
-        $enhancedquestions = [];
-
-        foreach ($questions as $question) {
-            $enhanced = $this->enhance_question_metadata($question);
-            $enhancedquestions[] = $enhanced;
-        }
-
-        return $enhancedquestions;
-    }
-
-    /**
-     * Fetch quiz usage for all questions in a single query.
-     */
-    private function fetch_quiz_usage_bulk($questions) {
-        global $DB;
-
-        if (empty($questions)) {
-            return [];
-        }
-
-        $questionids = array_column($questions, 'id');
-
-        if (empty($questionids)) {
-            return [];
-        }
-
-        // Build the query to get quiz usage for all questions.
-        // This combines question_references (direct usage) and question_attempts (random question usage).
-        [$insql, $params] = $DB->get_in_or_equal($questionids, SQL_PARAMS_NAMED);
-
-        $sql = "SELECT CONCAT(qv.questionid, '-', qz.id) as uniqueid,
-                       qv.questionid, qz.id as quizid, qz.name as quizname
-                  FROM {question_versions} qv
-                  JOIN {question_bank_entries} qbe ON qbe.id = qv.questionbankentryid
-                  JOIN {question_references} qr ON qr.questionbankentryid = qbe.id
-                  JOIN {quiz_slots} slot ON slot.id = qr.itemid
-                  JOIN {quiz} qz ON qz.id = slot.quizid
-                 WHERE qv.questionid $insql
-                   AND qr.component = 'mod_quiz'
-                   AND qr.questionarea = 'slot'
-              GROUP BY qv.questionid, qz.id, qz.name
-              ORDER BY qv.questionid, qz.name";
-
-        $usages = $DB->get_records_sql($sql, $params);
-
-        // Build lookup map: questionid => array of quiz names.
-        $usagemap = [];
-        foreach ($usages as $usage) {
-            if (!isset($usagemap[$usage->questionid])) {
-                $usagemap[$usage->questionid] = [];
-            }
-            $usagemap[$usage->questionid][] = $usage->quizname;
-        }
-
-        return $usagemap;
-    }
-
-    /**
-     * Enhance a single question with metadata analysis.
-     */
-    private function enhance_question_metadata($question) {
-        $courseid = $this->get_course_id_from_context();
-        $answer = $this->extract_answer($question->answer ?? '');
-        $tags = $this->get_question_tags($question->id);
-        $usedin = $this->usagemap[$question->id] ?? [];
-
-        // Get question bank URL parameters (handles Moodle 5's cmid vs courseid).
-        $qbankparams = \qtype_coderunner_util::make_question_bank_url_params($question);
-
-        $enhanced = [
-            'type' => 'coderunner',
-            'id' => (string)$question->id,
-            'name' => $question->name,
-            'questiontext' => $question->questiontext,
-            'answer' => $answer,
-            'coderunnertype' => $question->coderunnertype,
-            'category' => bulk_tester::get_category_path($question->category),
-            'categoryid' => (string)$question->category,
-            'contextid' => (string)$question->contextid,
-            'version' => (int)$question->version,
-            'courseid' => (string)$courseid,
-            'tags' => $tags,
-            'usedin' => $usedin,
-            'qbankparams' => $qbankparams,
-        ];
-
-        $enhanced['lines_of_code'] = $this->count_lines_of_code($answer);
-
-        return $enhanced;
-    }
-
-    private function extract_answer($answer) {
-        if (empty(trim($answer))) {
-            return '';
-        }
-
-        $decoded = json_decode($answer, true);
-
-        if (
-            json_last_error() === JSON_ERROR_NONE &&
-            is_array($decoded) &&
-            array_key_exists('answer_code', $decoded)
-        ) {
-            $answercode = $decoded['answer_code'];
-            if (is_array($answercode)) {
-                return implode("\n", $answercode);
-            }
-            return $answercode;
-        }
-
-        return $answer;
-    }
-
-    private function get_course_id_from_context() {
-        if ($this->context->contextlevel == CONTEXT_COURSE) {
-            return $this->context->instanceid;
-        } else if ($this->context->contextlevel == CONTEXT_MODULE) {
-            $cm = get_coursemodule_from_id(false, $this->context->instanceid, 0, false, MUST_EXIST);
-            return $cm->course;
-        }
-        return '0';
-    }
-
-    private function count_lines_of_code($code) {
-        if (empty(trim($code))) {
-            return 0;
-        }
-
-        $lines = explode("\n", $code);
-        $count = 0;
-
-        foreach ($lines as $line) {
-            $trimmed = trim($line);
-            if (!empty($trimmed) && !preg_match('/^\s*#/', $trimmed)) {
-                $count++;
-            }
-        }
-
-        return $count;
-    }
-
-    private function get_question_tags($questionid) {
-        $tagobjects = \core_tag_tag::get_item_tags('core_question', 'question', $questionid);
-        $tags = [];
-        foreach ($tagobjects as $tag) {
-            $tags[] = $tag->name;
-        }
-        return $tags;
-    }
-}
-
-// Set up page using Moodle's layout system.
-$PAGE->set_title('Question Browser - ' . $coursename);
-$PAGE->set_heading('Question Browser - ' . $coursename);
-$PAGE->set_pagelayout('incourse');
-
-if ($context->contextlevel == CONTEXT_COURSE) {
-    $PAGE->set_course($DB->get_record('course', ['id' => $context->instanceid]));
-} else if ($context->contextlevel == CONTEXT_MODULE) {
-    $cm = get_coursemodule_from_id(false, $context->instanceid, 0, false, MUST_EXIST);
-    $course = $DB->get_record('course', ['id' => $cm->course], '*', MUST_EXIST);
-    $PAGE->set_course($course);
-    $PAGE->set_cm($cm);
-}
-
-$PAGE->navbar->add('Question Browser');
-
-echo $OUTPUT->header();
-
-?>
-
-<style>
-/* Reduce excessive white space */
-#page-header, .page-header-headings {
-    margin-top: 0;
-    padding-top: 0.5rem;
-}
-
-/* Highlight active buttons when panels are open */
-.qbrowser-btn-active {
-    background-color: #0066cc !important;
-    border-color: #0066cc !important;
-    color: white !important;
-}
-
-/* Minimal custom styles to work with Moodle theme */
-.qbrowser-filters .form-group {
-    margin-bottom: 1rem;
-}
-
-.qbrowser-grid2 {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: 0.5rem;
-}
-
-.qbrowser-list {
-    max-height: 75vh;
-    overflow-y: auto;
-}
-
-.qbrowser-list table {
-    margin-bottom: 0;
-}
-
-.qbrowser-detail {
-    margin: 0.5rem 0;
-    padding: 1rem;
-    border-left: 4px solid #dee2e6;
-    background-color: var(--bs-light, #f8f9fa);
-}
-
-.qbrowser-detail.code-content {
-    white-space: pre-wrap;
-    font-family: monospace;
-    font-size: 0.875rem;
-}
-
-.qbrowser-detail.html-content {
-    font-family: inherit;
-}
-
-.qbrowser-controls .btn {
-    margin-right: 0.25rem;
-    margin-bottom: 0.25rem;
-}
-
-/* Advanced filter styles */
-.advanced-section {
-    margin-top: 1rem;
-    border-top: 2px solid #dee2e6;
-    padding-top: 1rem;
-}
-
-.advanced-toggle {
-    cursor: pointer;
-    user-select: none;
-    display: flex;
-    align-items: center;
-    gap: 0.5rem;
-    color: #0066cc;
-    font-weight: 500;
-}
-
-.advanced-toggle:hover {
-    color: #0052a3;
-}
-
-.advanced-toggle-icon {
-    transition: transform 0.2s;
-    display: inline-block;
-}
-
-.advanced-toggle-icon.expanded {
-    transform: rotate(90deg);
-}
-
-.advanced-content {
-    display: none;
-    margin-top: 1rem;
-}
-
-.advanced-content.show {
-    display: block;
-}
-
-.filter-rule {
-    display: grid;
-    grid-template-columns: 2fr 1.5fr 2fr auto;
-    gap: 0.5rem;
-    align-items: center;
-    margin-bottom: 0.5rem;
-    padding: 0.5rem;
-    background-color: #f8f9fa;
-    border-radius: 0.25rem;
-}
-
-.filter-rule select,
-.filter-rule input {
-    font-size: 0.875rem;
-}
-
-.filter-connector {
-    display: flex;
-    align-items: center;
-    gap: 0.5rem;
-    margin: 0.25rem 0;
-    padding-left: 0.5rem;
-}
-
-.filter-connector-select {
-    width: auto;
-    font-size: 0.75rem;
-    padding: 0.125rem 0.5rem;
-    font-weight: 600;
-}
-
-.filter-chips {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 0.5rem;
-    margin-top: 0.5rem;
-}
-
-.filter-chip {
-    display: inline-flex;
-    align-items: center;
-    gap: 0.5rem;
-    padding: 0.25rem 0.75rem;
-    background-color: #e3f2fd;
-    border: 1px solid #90caf9;
-    border-radius: 1rem;
-    font-size: 0.875rem;
-    color: #1976d2;
-}
-
-.filter-chip-remove {
-    cursor: pointer;
-    font-weight: bold;
-    color: #1976d2;
-    border: none;
-    background: none;
-    padding: 0;
-    font-size: 1rem;
-    line-height: 1;
-}
-
-.filter-chip-remove:hover {
-    color: #d32f2f;
-}
-
-@media (min-width: 992px) {
-    .qbrowser-main {
-        display: grid;
-        grid-template-columns: 350px 1fr;
-        gap: 1.5rem;
-        position: relative;
-    }
-    
-    .qbrowser-main-resizer {
-        position: absolute;
-        left: calc(350px + 0.75rem); /* Center in the gap */
-        top: 0;
-        bottom: 0;
-        width: 8px;
-        margin-left: -4px; /* Center the handle */
-        cursor: col-resize;
-        z-index: 10;
-        background-color: #dee2e6;
-        border-radius: 4px;
-        transition: background-color 0.2s;
-    }
-    
-    .qbrowser-main-resizer:hover {
-        background-color: #0066cc;
-    }
-    
-    .qbrowser-main-resizer::before {
-        content: '⋮';
-        position: absolute;
-        left: 50%;
-        top: 50%;
-        transform: translate(-50%, -50%);
-        color: white;
-        font-size: 16px;
-        line-height: 1;
-        text-shadow: 0 1px 2px rgba(0,0,0,0.3);
-    }
-}
-
-/* Resizable table columns */
-.qbrowser-list table th {
-    position: relative;
-    overflow: visible;
-}
-
-.column-resizer {
-    position: absolute;
-    right: 0;
-    top: 0;
-    bottom: 0;
-    width: 10px;
-    cursor: col-resize;
-    user-select: none;
-    z-index: 10;
-}
-
-.column-resizer:hover {
-    background-color: rgba(255, 255, 255, 0.3);
-}
-
-.column-resizer::after {
-    content: '';
-    position: absolute;
-    right: 0;
-    top: 50%;
-    transform: translateY(-50%);
-    width: 2px;
-    height: 60%;
-    background-color: rgba(255, 255, 255, 0.5);
-}
-
-.resizing {
-    cursor: col-resize !important;
-    user-select: none !important;
-}
-
-.resizing * {
-    cursor: col-resize !important;
-    user-select: none !important;
-}
-</style>
-
-<div class="container-fluid qbrowser-main" id="qbrowserMain">
-    <!-- LEFT: FILTERS -->
-    <div class="card" id="filterPanel">
-        <div class="card-header">
-            <h5 class="mb-0">Filters</h5>
-        </div>
-        <div class="card-body qbrowser-filters">
-            <div class="form-group">
-                <h6>Data</h6>
-                <div id="loadStatus" class="text-muted small">Loaded <?php echo count($questions); ?> questions</div>
-            </div>
-
-            <hr>
-
-            <div class="form-group">
-                <h6>Text filter</h6>
-                <div class="row">
-                    <div class="col-md-6">
-                        <label for="kw" class="form-label small">Search</label>
-                        <input type="text" id="kw" class="form-control form-control-sm" placeholder="substring or regex" />
-                    </div>
-                    <div class="col-md-6">
-                        <label for="kwMode" class="form-label small">Mode</label>
-                        <select id="kwMode" class="form-control form-control-sm">
-                            <option>Include</option>
-                            <option>Exclude</option>
-                        </select>
-                    </div>
-                </div>
-                <div class="row mt-2">
-                    <div class="col-md-6">
-                        <label for="kwField" class="form-label small">Field</label>
-                        <select id="kwField" class="form-control form-control-sm">
-                            <option>Any</option>
-                        </select>
-                    </div>
-                    <div class="col-md-6">
-                        <label for="kwType" class="form-label small">Type</label>
-                        <select id="kwType" class="form-control form-control-sm">
-                            <option>Text</option>
-                            <option>Regex</option>
-                        </select>
-                    </div>
-                </div>
-                <div class="mt-1">
-                    <small class="text-muted">Regex uses JavaScript syntax</small>
-                </div>
-            </div>
-
-            <hr>
-
-            <div class="form-group">
-                <h6>Lines of code</h6>
-                <div id="numericFilters"></div>
-            </div>
-
-            <hr>
-
-            <div class="form-group">
-                <h6>CodeRunner type</h6>
-                <div id="categoricalFilters"></div>
-            </div>
-
-            <!-- Advanced Filters Section -->
-            <div class="advanced-section">
-                <div class="advanced-toggle" id="advancedToggle">
-                    <span class="advanced-toggle-icon">▶</span>
-                    <h6 class="mb-0">Advanced Filters</h6>
-                </div>
-                <div class="advanced-content" id="advancedContent">
-                    <div class="mb-2">
-                        <small class="text-muted">Build complex filter rules with AND/OR logic</small>
-                    </div>
-                    <div id="filterRules"></div>
-                    <button class="btn btn-sm btn-outline-primary mt-2" id="addRule">+ Add Rule</button>
-                    <div id="activeFiltersChips" class="filter-chips"></div>
-                </div>
-            </div>
-
-            <hr>
-
-            <div class="d-flex gap-2 flex-wrap">
-                <button class="btn btn-primary btn-sm" id="apply">Apply Filters</button>
-                <button class="btn btn-secondary btn-sm" id="clear">Clear</button>
-            </div>
-            <div class="mt-2">
-                <small class="text-muted">Tip: All filters combine with AND logic. Advanced filters provide OR options.</small>
-            </div>
-        </div>
-    </div>
-
-    <!-- Resizer for main columns -->
-    <div class="qbrowser-main-resizer" id="mainResizer"></div>
-
-    <!-- RIGHT: RESULTS -->
-    <div class="card" id="resultsPanel">
-        <div class="card-header">
-            <div class="d-flex justify-content-between align-items-center">
-                <div class="d-flex align-items-center">
-                    <h5 class="mb-0">Results</h5>
-                    <span class="text-muted small ml-3" id="count">No data</span>
-                </div>
-                <div class="d-flex">
-                    <button id="exportJson" class="btn btn-success btn-sm mr-2" disabled>Export JSON</button>
-                    <button id="exportCsv" class="btn btn-success btn-sm" disabled>Export CSV</button>
-                </div>
-            </div>
-        </div>
-        <div class="card-body p-0">
-            <div id="list" class="qbrowser-list">
-                <!-- Content will be built dynamically -->
-            </div>
-        </div>
-    </div>
-</div>
-
-<script>
-(() => {
-  const rawData = <?php echo $questionsjson; ?>;
+    const init = function() {
+  const mainEl = document.getElementById('qbrowserMain');
+  const initData = JSON.parse(mainEl.dataset.init);
+  const rawData = initData.questions;
+  const moodleBaseUrl = initData.moodlebaseurl;
+  const strings = initData.strings;
   let viewData = rawData.slice();
-  
-  const moodleBaseUrl = '<?php echo $moodlebaseurl; ?>';
-  
-  const COMMON_CATS = [];
+
 
   let currentSort = {field: null, direction: 'asc'};
   let currentlyOpenDetails = null;
@@ -666,14 +77,23 @@ echo $OUTPUT->header();
   const mainResizer = document.getElementById('mainResizer');
 
   // Helpers.
-  function isNumber(x){ return typeof x === 'number' && Number.isFinite(x); }
-  
+  /**
+   *
+   * @param {*} x
+   */
+  function isNumber(x) {
+ return typeof x === 'number' && Number.isFinite(x);
+}
+
+  /**
+   *
+   */
   function buildHeader() {
     const table = document.createElement('table');
     table.className = 'table table-striped table-hover table-sm';
     table.style.tableLayout = 'fixed';
     table.style.width = '100%';
-    
+
     const colgroup = document.createElement('colgroup');
     const nameColDef = document.createElement('col');
     const actionsColDef = document.createElement('col');
@@ -681,41 +101,49 @@ echo $OUTPUT->header();
     const tagsColDef = document.createElement('col');
     const usedinColDef = document.createElement('col');
 
-    if (columnWidths.name) nameColDef.style.width = columnWidths.name + 'px';
+    if (columnWidths.name) {
+ nameColDef.style.width = columnWidths.name + 'px';
+}
     actionsColDef.style.width = columnWidths.actions + 'px';
-    if (columnWidths.category) categoryColDef.style.width = columnWidths.category + 'px';
-    if (columnWidths.tags) tagsColDef.style.width = columnWidths.tags + 'px';
-    if (columnWidths.usedin) usedinColDef.style.width = columnWidths.usedin + 'px';
+    if (columnWidths.category) {
+ categoryColDef.style.width = columnWidths.category + 'px';
+}
+    if (columnWidths.tags) {
+ tagsColDef.style.width = columnWidths.tags + 'px';
+}
+    if (columnWidths.usedin) {
+ usedinColDef.style.width = columnWidths.usedin + 'px';
+}
 
     colgroup.append(nameColDef, actionsColDef, categoryColDef, tagsColDef, usedinColDef);
     table.appendChild(colgroup);
-    
+
     const thead = document.createElement('thead');
     thead.className = 'table-dark sticky-top';
     const headerRow = document.createElement('tr');
-    
+
     const nameCol = document.createElement('th');
     nameCol.id = 'sortName';
     nameCol.style.cursor = 'pointer';
     nameCol.className = 'user-select-none';
     nameCol.style.position = 'relative';
     const nameText = document.createElement('span');
-    nameText.textContent = 'Name ↕';
+    nameText.textContent = strings.col_name;
     nameCol.appendChild(nameText);
-    
+
     const actionsCol = document.createElement('th');
     actionsCol.style.position = 'relative';
     const actionsText = document.createElement('span');
-    actionsText.textContent = 'Actions';
+    actionsText.textContent = strings.col_actions;
     actionsCol.appendChild(actionsText);
-    
+
     const categoryCol = document.createElement('th');
     categoryCol.id = 'sortCategory';
     categoryCol.style.cursor = 'pointer';
     categoryCol.className = 'user-select-none';
     categoryCol.style.position = 'relative';
     const categoryText = document.createElement('span');
-    categoryText.textContent = 'Category ↕';
+    categoryText.textContent = strings.col_category;
     categoryCol.appendChild(categoryText);
 
     const tagsCol = document.createElement('th');
@@ -724,7 +152,7 @@ echo $OUTPUT->header();
     tagsCol.className = 'user-select-none';
     tagsCol.style.position = 'relative';
     const tagsText = document.createElement('span');
-    tagsText.textContent = 'Tags ↕';
+    tagsText.textContent = strings.col_tags;
     tagsCol.appendChild(tagsText);
 
     const usedinCol = document.createElement('th');
@@ -733,7 +161,7 @@ echo $OUTPUT->header();
     usedinCol.className = 'user-select-none';
     usedinCol.style.position = 'relative';
     const usedinText = document.createElement('span');
-    usedinText.textContent = 'Used In ↕';
+    usedinText.textContent = strings.col_usedin;
     usedinCol.appendChild(usedinText);
 
     // Add resizers to all columns except the last
@@ -755,27 +183,41 @@ echo $OUTPUT->header();
     headerRow.appendChild(categoryCol);
     headerRow.appendChild(tagsCol);
     headerRow.appendChild(usedinCol);
-    
+
     thead.appendChild(headerRow);
     table.appendChild(thead);
-    
+
     const tbody = document.createElement('tbody');
     table.appendChild(tbody);
-    
+
     return table;
   }
-  
+
+  /**
+   *
+   * @param {Array} arr
+   */
   function toCSV(arr) {
-    if (!arr.length) return "";
+    if (!arr.length) {
+ return "";
+}
     const headers = Object.keys(arr[0]);
     const esc = v => {
-      if (v === null || v === undefined) return "";
+      if (v === null || v === undefined) {
+ return "";
+}
       const s = typeof v === 'object' ? JSON.stringify(v) : String(v);
-      return /[",\n]/.test(s) ? `"${s.replace(/"/g,'""')}"` : s;
+      return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
     };
     return [headers.join(',')].concat(arr.map(o => headers.map(h => esc(o[h])).join(','))).join('\n');
   }
-  
+
+  /**
+   *
+   * @param {string} filename
+   * @param {string} content
+   * @param {string} mime
+   */
   function download(filename, content, mime) {
     const blob = new Blob([content], {type: mime});
     const a = document.createElement('a');
@@ -785,7 +227,11 @@ echo $OUTPUT->header();
     URL.revokeObjectURL(a.href);
   }
 
-  function summarizeRow(q, idx, tbody){
+  /**
+   *
+   * @param {object} q
+   */
+  function summarizeRow(q) {
     const row = document.createElement('tr');
 
     const nameCell = document.createElement('td');
@@ -795,36 +241,36 @@ echo $OUTPUT->header();
 
     const actionsCell = document.createElement('td');
     actionsCell.className = 'qbrowser-controls';
-    
+
     const questionBtn = document.createElement('button');
     questionBtn.className = 'btn btn-outline-secondary';
     questionBtn.style.cssText = 'padding: 2px 5px; font-size: 10px; margin-right: 1px; line-height: 1.2;';
-    questionBtn.textContent = 'Question';
-    questionBtn.title = 'View Question';
-    
+    questionBtn.textContent = strings.btn_question;
+    questionBtn.title = strings.tip_view_question;
+
     const answerBtn = document.createElement('button');
     answerBtn.className = 'btn btn-outline-secondary';
     answerBtn.style.cssText = 'padding: 2px 5px; font-size: 10px; margin-right: 1px; line-height: 1.2;';
-    answerBtn.textContent = 'Answer';
-    answerBtn.title = 'View Answer';
-    
+    answerBtn.textContent = strings.btn_answer;
+    answerBtn.title = strings.tip_view_answer;
+
     const previewBtn = document.createElement('button');
     previewBtn.className = 'btn btn-outline-secondary';
     previewBtn.style.cssText = 'padding: 2px 5px; font-size: 10px; margin-right: 1px; line-height: 1.2;';
-    previewBtn.textContent = 'Preview';
-    previewBtn.title = 'Preview Question';
-    
+    previewBtn.textContent = strings.btn_preview;
+    previewBtn.title = strings.tip_preview_question;
+
     const bankBtn = document.createElement('button');
     bankBtn.className = 'btn btn-outline-secondary';
     bankBtn.style.cssText = 'padding: 2px 5px; font-size: 10px; margin-right: 1px; line-height: 1.2;';
-    bankBtn.textContent = 'Bank';
-    bankBtn.title = 'View in Question Bank';
+    bankBtn.textContent = strings.btn_bank;
+    bankBtn.title = strings.tip_view_in_bank;
 
     const jsonBtn = document.createElement('button');
     jsonBtn.className = 'btn btn-outline-secondary';
     jsonBtn.style.cssText = 'padding: 2px 5px; font-size: 10px; line-height: 1.2;';
-    jsonBtn.textContent = 'JSON';
-    jsonBtn.title = 'View JSON';
+    jsonBtn.textContent = strings.btn_json;
+    jsonBtn.title = strings.tip_view_json;
 
     actionsCell.append(questionBtn, answerBtn, previewBtn, bankBtn, jsonBtn);
 
@@ -869,11 +315,14 @@ echo $OUTPUT->header();
     let openType = null;
     let detailRow = null;
 
+    /**
+     *
+     */
     function closeDetails() {
       openType = null;
-      questionBtn.textContent = 'Question';
-      answerBtn.textContent = 'Answer';
-      jsonBtn.textContent = 'JSON';
+      questionBtn.textContent = strings.btn_question;
+      answerBtn.textContent = strings.btn_answer;
+      jsonBtn.textContent = strings.btn_json;
       questionBtn.classList.remove('qbrowser-btn-active');
       answerBtn.classList.remove('qbrowser-btn-active');
       jsonBtn.classList.remove('qbrowser-btn-active');
@@ -886,6 +335,12 @@ echo $OUTPUT->header();
       }
     }
 
+    /**
+     *
+     * @param {string} type
+     * @param {string} content
+     * @param {boolean} isHTML
+     */
     function toggleDisplay(type, content, isHTML = false) {
       if (openType === type) {
         closeDetails();
@@ -899,17 +354,21 @@ echo $OUTPUT->header();
         }
 
         openType = type;
-        questionBtn.textContent = type === 'question' ? 'Close' : 'Question';
-        answerBtn.textContent = type === 'answer' ? 'Close' : 'Answer';
-        jsonBtn.textContent = type === 'json' ? 'Close' : 'JSON';
+        questionBtn.textContent = type === 'question' ? strings.btn_close : strings.btn_question;
+        answerBtn.textContent = type === 'answer' ? strings.btn_close : strings.btn_answer;
+        jsonBtn.textContent = type === 'json' ? strings.btn_close : strings.btn_json;
 
         questionBtn.classList.remove('qbrowser-btn-active');
         answerBtn.classList.remove('qbrowser-btn-active');
         jsonBtn.classList.remove('qbrowser-btn-active');
 
-        if (type === 'question') questionBtn.classList.add('qbrowser-btn-active');
-        else if (type === 'answer') answerBtn.classList.add('qbrowser-btn-active');
-        else if (type === 'json') jsonBtn.classList.add('qbrowser-btn-active');
+        if (type === 'question') {
+ questionBtn.classList.add('qbrowser-btn-active');
+} else if (type === 'answer') {
+ answerBtn.classList.add('qbrowser-btn-active');
+} else if (type === 'json') {
+ jsonBtn.classList.add('qbrowser-btn-active');
+}
 
         detailRow = document.createElement('tr');
         const detailCell = document.createElement('td');
@@ -917,8 +376,11 @@ echo $OUTPUT->header();
 
         const detail = document.createElement('div');
         detail.className = isHTML ? 'qbrowser-detail html-content' : 'qbrowser-detail code-content';
-        if (isHTML) detail.innerHTML = content;
-        else        detail.textContent = content;
+        if (isHTML) {
+ detail.innerHTML = content;
+} else {
+ detail.textContent = content;
+}
 
         detailCell.appendChild(detail);
         detailRow.appendChild(detailCell);
@@ -930,15 +392,15 @@ echo $OUTPUT->header();
     }
 
     jsonBtn.addEventListener('click', () => toggleDisplay('json', JSON.stringify(q, null, 2)));
-    questionBtn.addEventListener('click', () => toggleDisplay('question', q.questiontext || 'No question text available', true));
-    answerBtn.addEventListener('click', () => toggleDisplay('answer', q.answer || 'No answer available'));
-    
+    questionBtn.addEventListener('click', () => toggleDisplay('question', q.questiontext || strings.no_questiontext, true));
+    answerBtn.addEventListener('click', () => toggleDisplay('answer', q.answer || strings.no_answer));
+
     previewBtn.addEventListener('click', () => {
       if (q.id) {
         const previewUrl = `${moodleBaseUrl}/question/bank/previewquestion/preview.php?id=${q.id}`;
         window.open(previewUrl, '_blank');
       } else {
-        alert('No question ID available for preview');
+        alert(strings.alert_no_id);
       }
     });
 
@@ -948,13 +410,17 @@ echo $OUTPUT->header();
         const bankUrl = `${moodleBaseUrl}/question/edit.php?${params.toString()}`;
         window.open(bankUrl, '_blank');
       } else {
-        alert('Missing question bank parameters');
+        alert(strings.alert_no_bank_params);
       }
     });
 
     return row;
   }
 
+  /**
+   *
+   * @param {string} field
+   */
   function sortBy(field) {
     if (currentSort.field === field) {
       currentSort.direction = currentSort.direction === 'asc' ? 'desc' : 'asc';
@@ -983,7 +449,10 @@ echo $OUTPUT->header();
     renderList(viewData);
     updateHeaderSortIndicators();
   }
-  
+
+  /**
+   *
+   */
   function updateHeaderSortIndicators() {
     const sortName = document.getElementById('sortName');
     const sortCategory = document.getElementById('sortCategory');
@@ -991,16 +460,25 @@ echo $OUTPUT->header();
     const sortUsedIn = document.getElementById('sortUsedIn');
 
     [sortName, sortCategory, sortTags, sortUsedIn].forEach(header => {
-      if (!header) return;
+      if (!header) {
+ return;
+}
       let field;
-      if (header.id === 'sortName') field = 'name';
-      else if (header.id === 'sortCategory') field = 'category';
-      else if (header.id === 'sortTags') field = 'tags';
-      else if (header.id === 'sortUsedIn') field = 'usedin';
+      if (header.id === 'sortName') {
+ field = 'name';
+} else if (header.id === 'sortCategory') {
+ field = 'category';
+} else if (header.id === 'sortTags') {
+ field = 'tags';
+} else if (header.id === 'sortUsedIn') {
+ field = 'usedin';
+}
 
       // Find the span element that contains the text
       const span = header.querySelector('span');
-      if (!span) return;
+      if (!span) {
+ return;
+}
 
       if (field === currentSort.field) {
         const arrow = currentSort.direction === 'asc' ? '↑' : '↓';
@@ -1011,47 +489,67 @@ echo $OUTPUT->header();
     });
   }
 
-  function renderList(data){
+  /**
+   *
+   * @param {Array} data
+   */
+  function renderList(data) {
     listEl.innerHTML = '';
-    
+
     if (data.length === 0) {
-      listEl.innerHTML = '<div class="text-center p-4 text-muted">No questions match the current filters.</div>';
+      const noMatch = document.createElement('div');
+      noMatch.className = 'text-center p-4 text-muted';
+      noMatch.textContent = strings.no_matches;
+      listEl.appendChild(noMatch);
     } else {
       const table = buildHeader();
       const tbody = table.querySelector('tbody');
-      
-      data.forEach((q, i) => {
-        const row = summarizeRow(q, i, tbody);
+
+      data.forEach(q => {
+        const row = summarizeRow(q);
         tbody.appendChild(row);
       });
-      
+
       listEl.appendChild(table);
     }
 
-    countEl.textContent = `${data.length.toLocaleString()} shown / ${rawData.length.toLocaleString()} total`;
+    countEl.textContent = `${data.length.toLocaleString()} ${strings.shown} / ${rawData.length.toLocaleString()} ${strings.total}`;
     const hasData = data.length > 0;
     exportJsonBtn.disabled = !hasData;
     exportCsvBtn.disabled = !hasData;
-    
+
     document.getElementById('sortName')?.addEventListener('click', () => sortBy('name'));
     document.getElementById('sortCategory')?.addEventListener('click', () => sortBy('category'));
     document.getElementById('sortTags')?.addEventListener('click', () => sortBy('tags'));
     document.getElementById('sortUsedIn')?.addEventListener('click', () => sortBy('usedin'));
   }
 
-  function buildFilters(data){
+  /**
+   *
+   * @param {Array} data
+   */
+  function buildFilters(data) {
     kwField.innerHTML = '';
     const keys = Array.from(new Set(data.flatMap(obj => Object.keys(obj))));
-    const optAny = document.createElement('option'); optAny.textContent = 'Any'; kwField.appendChild(optAny);
+    const optAny = document.createElement('option'); optAny.textContent = strings.any; kwField.appendChild(optAny);
     const excludedKeys = ['version', 'timemodified', 'type', 'courseid', 'lines_of_code'];
     keys.filter(k => !excludedKeys.includes(k)).forEach(k => {
       const o = document.createElement('option'); o.textContent = k; kwField.appendChild(o);
     });
 
     const numFields = keys.filter(k => {
-      if (k === 'version' || k === 'timemodified') return false;
-      let n=0, t=0;
-      for (const o of data) { if (k in o) { t++; if (isNumber(o[k])) n++; } }
+      if (k === 'version' || k === 'timemodified') {
+ return false;
+}
+      let n = 0,
+t = 0;
+      for (const o of data) {
+ if (k in o) {
+ t++; if (isNumber(o[k])) {
+ n++;
+}
+}
+}
       return t > 0 && n / t >= 0.8;
     });
 
@@ -1059,61 +557,55 @@ echo $OUTPUT->header();
     numFields.forEach(k => {
       const inputGroup = document.createElement('div');
       inputGroup.className = 'qbrowser-grid2';
-      
+
       const min = document.createElement('input');
       min.type = 'number';
       min.placeholder = 'min';
       min.className = 'form-control form-control-sm';
       min.dataset.key = k;
       min.dataset.kind = 'min';
-      
+
       const max = document.createElement('input');
       max.type = 'number';
       max.placeholder = 'max';
       max.className = 'form-control form-control-sm';
       max.dataset.key = k;
       max.dataset.kind = 'max';
-      
+
       inputGroup.append(min, max);
       numericFilters.appendChild(inputGroup);
     });
 
-    const catFields = new Set(COMMON_CATS.filter(k => keys.includes(k)));
-    keys.forEach(k => {
-      const vals = new Set();
-      let seen = 0;
-      for (const o of data) {
-        if (k in o) { seen++; const v = o[k]; if (typeof v === 'string') vals.add(v); if (vals.size > 30) break; }
-      }
-      if (seen > 0 && vals.size > 1 && vals.size <= 30) catFields.add(k);
-    });
-
+    // Build the coderunnertype filter (the only categorical filter).
     categoricalFilters.innerHTML = '';
-    [...catFields].forEach(k => {
+    const typeValues = Array.from(
+      new Set(data.map(o => o.coderunnertype).filter(v => typeof v === 'string' && v.trim() !== ''))
+    ).sort();
+    if (typeValues.length > 0) {
       const select = document.createElement('select');
       select.className = 'form-control form-control-sm';
-      select.dataset.key = k;
-      
-      const dataValues = new Set(data.map(o => o[k]).filter(v => typeof v === 'string' && v.trim() !== ''));
-      const values = Array.from(dataValues).sort();
-      
+      select.dataset.key = 'coderunnertype';
+
       const emptyOption = document.createElement('option');
       emptyOption.value = '';
       emptyOption.textContent = '(any)';
       select.appendChild(emptyOption);
-      
-      values.forEach(v => {
+
+      typeValues.forEach(v => {
         const option = document.createElement('option');
         option.value = v;
         option.textContent = v;
         select.appendChild(option);
       });
-      
+
       categoricalFilters.appendChild(select);
-    });
+    }
   }
 
-  function getNumericFilterRanges(){
+  /**
+   *
+   */
+  function getNumericFilterRanges() {
     const inputs = numericFilters.querySelectorAll('input[type="number"]');
     const ranges = {};
     inputs.forEach(inp => {
@@ -1127,22 +619,29 @@ echo $OUTPUT->header();
   }
 
   // Advanced filter functions
+  /**
+   *
+   */
   function getAvailableFields() {
     const keys = Array.from(new Set(rawData.flatMap(obj => Object.keys(obj))));
     const excludedKeys = ['version', 'timemodified', 'type', 'courseid', 'lines_of_code'];
     return keys.filter(k => !excludedKeys.includes(k)).sort();
   }
 
+  /**
+   *
+   * @param {string} field
+   */
   function getOperatorsForField(field) {
     // Determine field type from data
     const sampleValues = rawData.slice(0, 10).map(obj => obj[field]).filter(v => v !== null && v !== undefined);
-    
+
     if (sampleValues.length === 0) {
       return ['contains', 'does not contain', 'equals', 'does not equal', 'matches regex', 'does not match regex'];
     }
 
     const firstValue = sampleValues[0];
-    
+
     if (Array.isArray(firstValue)) {
       return ['includes', 'does not include', 'is empty', 'is not empty', 'matches regex', 'does not match regex'];
     } else if (typeof firstValue === 'number') {
@@ -1155,6 +654,11 @@ echo $OUTPUT->header();
     }
   }
 
+  /**
+   *
+   * @param {object} obj
+   * @param {object} rule
+   */
   function evaluateRule(obj, rule) {
     const fieldValue = obj[rule.field];
     const compareValue = rule.value;
@@ -1194,6 +698,7 @@ echo $OUTPUT->header();
           }
           return regex.test(String(fieldValue || ''));
         } catch (e) {
+          // eslint-disable-next-line no-console
           console.error('Invalid regex pattern:', compareValue, e);
           return false;
         }
@@ -1205,6 +710,7 @@ echo $OUTPUT->header();
           }
           return !regex.test(String(fieldValue || ''));
         } catch (e) {
+          // eslint-disable-next-line no-console
           console.error('Invalid regex pattern:', compareValue, e);
           return true; // If regex is invalid, consider it as "not matching"
         }
@@ -1221,6 +727,10 @@ echo $OUTPUT->header();
     }
   }
 
+  /**
+   *
+   * @param {object|null} rule
+   */
   function createFilterRule(rule = null) {
     const ruleId = rule?.id || ruleIdCounter++;
     const ruleDiv = document.createElement('div');
@@ -1238,7 +748,9 @@ echo $OUTPUT->header();
       const opt = document.createElement('option');
       opt.value = f;
       opt.textContent = f;
-      if (rule && rule.field === f) opt.selected = true;
+      if (rule && rule.field === f) {
+ opt.selected = true;
+}
       fieldSelect.appendChild(opt);
     });
 
@@ -1253,7 +765,9 @@ echo $OUTPUT->header();
         const opt = document.createElement('option');
         opt.value = op;
         opt.textContent = op;
-        if (rule && rule.operator === op) opt.selected = true;
+        if (rule && rule.operator === op) {
+ opt.selected = true;
+}
         operatorSelect.appendChild(opt);
       });
       updateValueInput();
@@ -1264,7 +778,9 @@ echo $OUTPUT->header();
     valueInput.type = 'text';
     valueInput.className = 'form-control form-control-sm';
     valueInput.placeholder = 'value';
-    if (rule) valueInput.value = rule.value || '';
+    if (rule) {
+ valueInput.value = rule.value || '';
+}
 
     const updateValueInput = () => {
       const operator = operatorSelect.value;
@@ -1276,7 +792,7 @@ echo $OUTPUT->header();
       } else if (operator === 'matches regex' || operator === 'does not match regex') {
         valueInput.disabled = false;
         valueInput.placeholder = 'regex pattern';
-        valueInput.title = 'JavaScript regex pattern (case-insensitive)';
+        valueInput.title = strings.tip_regex_input;
       } else {
         valueInput.disabled = false;
         valueInput.placeholder = 'value';
@@ -1291,7 +807,7 @@ echo $OUTPUT->header();
     const removeBtn = document.createElement('button');
     removeBtn.className = 'btn btn-sm btn-outline-danger';
     removeBtn.textContent = '×';
-    removeBtn.title = 'Remove rule';
+    removeBtn.title = strings.tip_remove_rule;
     removeBtn.addEventListener('click', () => {
       advancedRules = advancedRules.filter(r => r.id !== ruleId);
       ruleDiv.remove();
@@ -1305,20 +821,22 @@ echo $OUTPUT->header();
     if (filterRulesEl.children.length > 0) {
       const connector = document.createElement('div');
       connector.className = 'filter-connector';
-      
+
       const connectorSelect = document.createElement('select');
       connectorSelect.className = 'form-control filter-connector-select';
       ['AND', 'OR'].forEach(op => {
         const opt = document.createElement('option');
         opt.value = op;
         opt.textContent = op;
-        if (rule && rule.connector === op) opt.selected = true;
+        if (rule && rule.connector === op) {
+ opt.selected = true;
+}
         connectorSelect.appendChild(opt);
       });
-      
+
       connector.appendChild(connectorSelect);
       ruleDiv.insertBefore(connector, ruleContainer);
-      
+
       connectorSelect.addEventListener('change', () => {
         const existingRule = advancedRules.find(r => r.id === ruleId);
         if (existingRule) {
@@ -1333,9 +851,15 @@ echo $OUTPUT->header();
     const ruleData = {
       id: ruleId,
       connector: rule?.connector || 'AND',
-      get field() { return fieldSelect.value; },
-      get operator() { return operatorSelect.value; },
-      get value() { return valueInput.value; }
+      get field() {
+ return fieldSelect.value;
+},
+      get operator() {
+ return operatorSelect.value;
+},
+      get value() {
+ return valueInput.value;
+}
     };
 
     if (!rule) {
@@ -1345,63 +869,81 @@ echo $OUTPUT->header();
     return ruleDiv;
   }
 
+  /**
+   *
+   */
   function updateActiveFiltersChips() {
     activeFiltersChips.innerHTML = '';
-    
+
     advancedRules.forEach((rule, idx) => {
       const chip = document.createElement('div');
       chip.className = 'filter-chip';
-      
+
       const text = document.createElement('span');
       const connector = idx > 0 ? `${rule.connector} ` : '';
       const valueText = rule.operator === 'is empty' || rule.operator === 'is not empty' ? '' : `: "${rule.value}"`;
       text.textContent = `${connector}${rule.field} ${rule.operator}${valueText}`;
-      
+
       const removeBtn = document.createElement('button');
       removeBtn.className = 'filter-chip-remove';
       removeBtn.textContent = '×';
-      removeBtn.title = 'Remove filter';
+      removeBtn.title = strings.tip_remove_filter;
       removeBtn.addEventListener('click', () => {
         advancedRules = advancedRules.filter(r => r.id !== rule.id);
         const ruleEl = filterRulesEl.querySelector(`[data-rule-id="${rule.id}"]`);
-        if (ruleEl) ruleEl.remove();
+        if (ruleEl) {
+ ruleEl.remove();
+}
         updateActiveFiltersChips();
       });
-      
+
       chip.append(text, removeBtn);
       activeFiltersChips.appendChild(chip);
     });
   }
 
+  /**
+   *
+   * @param {Array} data
+   */
   function applyAdvancedFilters(data) {
-    if (advancedRules.length === 0) return data;
+    if (advancedRules.length === 0) {
+ return data;
+}
 
     return data.filter(obj => {
       let result = evaluateRule(obj, advancedRules[0]);
-      
+
       for (let i = 1; i < advancedRules.length; i++) {
         const rule = advancedRules[i];
         const ruleResult = evaluateRule(obj, rule);
-        
+
         if (rule.connector === 'AND') {
           result = result && ruleResult;
         } else {
           result = result || ruleResult;
         }
       }
-      
+
       return result;
     });
   }
 
-  function applyFilters(){
+  /**
+   *
+   */
+  function applyFilters() {
     let out = rawData.slice();
 
     // Numeric
     const ranges = getNumericFilterRanges();
     for (const [k, {min, max}] of Object.entries(ranges)) {
-      if (min !== null) out = out.filter(o => isNumber(o[k]) ? o[k] >= min : true);
-      if (max !== null) out = out.filter(o => isNumber(o[k]) ? o[k] <= max : true);
+      if (min !== null) {
+ out = out.filter(o => isNumber(o[k]) ? o[k] >= min : true);
+}
+      if (max !== null) {
+ out = out.filter(o => isNumber(o[k]) ? o[k] <= max : true);
+}
     }
 
     // Categorical
@@ -1419,25 +961,29 @@ echo $OUTPUT->header();
       const mode = kwMode.value;
       const fieldChoice = kwField.value;
       const searchType = kwType.value;
-      
+
       let regex = null;
       if (searchType === 'Regex') {
         try {
           regex = new RegExp(needle, 'i');
         } catch (e) {
-          alert('Invalid regex pattern: ' + e.message);
+          alert(strings.alert_bad_regex + ': ' + e.message);
           return;
         }
       }
-      
+
       const matches = (obj) => {
         if (fieldChoice === 'Any') {
           return Object.values(obj).some(v => {
             let s;
-            if (Array.isArray(v)) s = v.join(', ');
-            else if (v && typeof v === 'object') s = JSON.stringify(v);
-            else s = String(v ?? '');
-            
+            if (Array.isArray(v)) {
+ s = v.join(', ');
+} else if (v && typeof v === 'object') {
+ s = JSON.stringify(v);
+} else {
+ s = String(v ?? '');
+}
+
             if (searchType === 'Regex') {
               return regex.test(s);
             } else {
@@ -1447,10 +993,14 @@ echo $OUTPUT->header();
         } else {
           const v = obj[fieldChoice];
           let s;
-          if (Array.isArray(v)) s = v.join(', ');
-          else if (v && typeof v === 'object') s = JSON.stringify(v);
-          else s = String(v ?? '');
-          
+          if (Array.isArray(v)) {
+ s = v.join(', ');
+} else if (v && typeof v === 'object') {
+ s = JSON.stringify(v);
+} else {
+ s = String(v ?? '');
+}
+
           if (searchType === 'Regex') {
             return regex.test(s);
           } else {
@@ -1469,14 +1019,21 @@ echo $OUTPUT->header();
     updateActiveFiltersChips();
   }
 
-  function clearFiltersUI(){
-    numericFilters.querySelectorAll('input').forEach(i => i.value = '');
-    categoricalFilters.querySelectorAll('select').forEach(s => s.value = '');
+  /**
+   *
+   */
+  function clearFiltersUI() {
+    numericFilters.querySelectorAll('input').forEach(i => {
+      i.value = '';
+    });
+    categoricalFilters.querySelectorAll('select').forEach(s => {
+      s.value = '';
+    });
     kw.value = '';
     kwMode.value = 'Include';
     kwField.value = 'Any';
     kwType.value = 'Text';
-    
+
     // Clear advanced filters
     advancedRules = [];
     filterRulesEl.innerHTML = '';
@@ -1498,19 +1055,17 @@ echo $OUTPUT->header();
   // Add rule button
   addRuleBtn.addEventListener('click', () => {
     if (advancedRules.length >= 6) {
-      alert('Maximum of 6 advanced filter rules allowed');
+      alert(strings.alert_max_rules);
       return;
     }
     const ruleEl = createFilterRule();
     filterRulesEl.appendChild(ruleEl);
   });
 
-  // Initialize on page load
-  document.addEventListener('DOMContentLoaded', () => {
-    buildFilters(rawData);
-    renderList(viewData);
-    initializeResizers();
-  });
+  // DOM is already ready when AMD init runs (called from page footer).
+  buildFilters(rawData);
+  renderList(viewData);
+  initializeResizers();
 
   // Enter key on search field applies filters
   kw.addEventListener('keypress', (e) => {
@@ -1520,6 +1075,9 @@ echo $OUTPUT->header();
   });
 
   // Resizer functionality
+  /**
+   *
+   */
   function initializeResizers() {
     // Main panel resizer
     let isResizingMain = false;
@@ -1559,7 +1117,7 @@ echo $OUTPUT->header();
         const table = resizer.closest('table');
         const colgroup = table.querySelector('colgroup');
         const cols = Array.from(colgroup.children);
-        
+
         let startX = e.clientX;
         let startWidth = cols[columnIndex].offsetWidth || parseInt(cols[columnIndex].style.width);
         let nextStartWidth = cols[columnIndex + 1].offsetWidth || parseInt(cols[columnIndex + 1].style.width);
@@ -1571,7 +1129,7 @@ echo $OUTPUT->header();
           const delta = e.clientX - startX;
           const newWidth = Math.max(80, startWidth + delta);
           const nextNewWidth = Math.max(80, nextStartWidth - delta);
-          
+
           cols[columnIndex].style.width = newWidth + 'px';
           cols[columnIndex + 1].style.width = nextNewWidth + 'px';
 
@@ -1595,7 +1153,9 @@ echo $OUTPUT->header();
 
   // Apply/Clear
   applyBtn.addEventListener('click', applyFilters);
-  clearBtn.addEventListener('click', () => { clearFiltersUI(); viewData = rawData.slice(); renderList(viewData); });
+  clearBtn.addEventListener('click', () => {
+ clearFiltersUI(); viewData = rawData.slice(); renderList(viewData);
+});
 
   // Export
   exportJsonBtn.addEventListener('click', () => {
@@ -1605,8 +1165,10 @@ echo $OUTPUT->header();
     download('filtered_questions.csv', toCSV(viewData), 'text/csv');
   });
 
-})();
-</script>
 
-<?php
-echo $OUTPUT->footer();
+    };
+
+    return {
+        init: init
+    };
+});

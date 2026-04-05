@@ -3428,7 +3428,7 @@ The scripts are:
     preview of it. The selected subset of questions can be exported in a
     custom compressed form as JSON or CSV.
 
- 1. `&lt;moodle_home&gt;/question/type/coderunner/bulktestindex.php`
+ 1. `&lt;moodle_home&gt;/question/type/coderunner/scripts/bulktest.php`
 ========
 
  1. `<moodle_home>/question/type/coderunner/questionbrowserindex.php`
@@ -3445,7 +3445,7 @@ The scripts are:
     preview of it. The selected subset of questions can be exported in a
     custom compressed form as JSON or CSV.
 
- 1. `<moodle_home>/question/type/coderunner/bulktestindex.php`
+ 1. `<moodle_home>/question/type/coderunner/scripts/bulktest.php`
 >>>>>>>> master:docs/index.md
     This script displays a list of all question banks and categories accessible to the
     user who is currently logged into Moodle on the machine running the script.
@@ -3453,14 +3453,15 @@ The scripts are:
     tests the sample answers on all questions in that category, reporting
     all successes and failures.
 
- 1. `<moodle_home>/question/type/coderunner/prototypeusageindex.php`
-    This scripts displays an index like the one above except that the
-    clickable links now run a script that reports on the question prototype
-    usage within that category.
+ 1. `<moodle_home>/question/type/coderunner/scripts/prototypeusage.php`
+    When called without parameters, this script displays an index of all
+    accessible courses/contexts. Clicking a link then shows a report of
+    question prototype usage within that context.
 
- 1. `<moodle_home>/question/type/coderunner/cachepurgeindex.php`
-    This script displays a list of contexts in which the grade cache has
-    entries, allowing manual purging of all entries in that context.
+ 1. `<moodle_home>/question/type/coderunner/scripts/cachepurge.php`
+    When called without parameters, this script lists all contexts in which
+    the grade cache has entries, with buttons to purge old or all entries.
+    Clicking a button then performs the purge for that context.
 
  1. `<moodle_home>/question/type/coderunner/downloadquizattempts.php`
     This script

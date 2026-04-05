@@ -33,7 +33,7 @@
  * the flawed function that adds data to the table.
  */
 
-require_once(__DIR__ . '/../../../config.php');
+require_once(__DIR__ . '/../../../../config.php');
 require_once($CFG->libdir . '/questionlib.php');
 require_once($CFG->libdir . '/tablelib.php');
 
@@ -115,7 +115,7 @@ $course = $DB->get_record('course', ['id' => $quiz->course], '*', MUST_EXIST);
 $coursecontext = context_course::instance($course->id);
 
 // I'm not sure if the next three lines are ever relevant but ... what's to lose?
-$PAGE->set_url('/question/type/coderunner/getallattempts.php');
+$PAGE->set_url('/question/type/coderunner/scripts/getallattempts.php');
 $PAGE->set_context($coursecontext);
 $PAGE->set_title('Get all quiz attempts');  // TODO: use get_string.
 

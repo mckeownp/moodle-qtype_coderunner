@@ -26,9 +26,9 @@
  * The course selector is filtered to show only courses the current user
  * may report on.
  *
- * Place this file inside  question/type/coderunner/  (alongside the other
+ * Place this file inside  question/type/coderunner/scripts/  (alongside the other
  * admin scripts) and access it as:
- *   https://<your-moodle>/question/type/coderunner/student_time_analysis.php
+ *   https://<your-moodle>/question/type/coderunner/scripts/student_time_analysis.php
  *
  * @package   qtype_coderunner
  * @copyright  2024 Richard Lobb, University of Canterbury
@@ -37,7 +37,7 @@
 
 define('NO_OUTPUT_BUFFERING', true);
 
-require_once(__DIR__ . '/../../../config.php');
+require_once(__DIR__ . '/../../../../config.php');
 require_once($CFG->libdir . '/adminlib.php');
 
 // -------------------------------------------------------------------------
@@ -52,7 +52,7 @@ $issiteadmin   = has_capability('moodle/site:config', $systemcontext);
 $staffrolenames = ['manager', 'coursecreator', 'editingteacher', 'teacher'];
 
 $PAGE->set_context($systemcontext);
-$PAGE->set_url(new moodle_url('/question/type/coderunner/student_time_analysis.php'));
+$PAGE->set_url(new moodle_url('/question/type/coderunner/scripts/student_time_analysis.php'));
 $PAGE->set_title('CodeRunner: Student time-on-task analysis');
 $PAGE->set_heading('CodeRunner: Student time-on-task analysis');
 
