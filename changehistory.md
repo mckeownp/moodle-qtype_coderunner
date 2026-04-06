@@ -1,5 +1,10 @@
 # CHANGE HISTORY
 
+### 8 April 2026, 5.9.0
+
+Extensive refactoring of scripts, merging all {scriptname}index.php and {scriptname}.php pairs.
+Script files all moved into scripts folder leaving only management.php at the plugin root.
+
 ### 4 November 2025, 5.8.1
 
  * New scripts for question bank clean up (deletion of old unused versions) and integrity checking.
