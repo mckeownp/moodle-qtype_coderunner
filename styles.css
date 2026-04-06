@@ -122,6 +122,7 @@ body#page-question-type-coderunner .ace_editor {
 
 .que.coderunner table.coderunner-test-results,
 .que.coderunner table.coderunnerexamples {
+    width: auto;
     margin-bottom: 1em;
 }
 
@@ -185,7 +186,7 @@ body#page-question-type-coderunner .ace_editor {
 }
 
 .que.coderunner div.coderunner-test-results.bad.precheck pre {
-    background: white;  /* Need to override boost default of 0.5 transparency */
+    background: white;  /* Need to override default of 0.5 transparency */
 }
 
 .que.coderunner pre.pre_syntax_error,
