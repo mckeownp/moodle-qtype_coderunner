@@ -28,7 +28,7 @@
  *
  * Place this file inside  question/type/coderunner/scripts/  (alongside the other
  * admin scripts) and access it as:
- *   https://<your-moodle>/question/type/coderunner/scripts/student_time_analysis.php
+ *   https://<your-moodle>/question/type/coderunner/scripts/studenttimeanalysis.php
  *
  * @package   qtype_coderunner
  * @copyright  2024 Richard Lobb, University of Canterbury
@@ -52,7 +52,7 @@ $issiteadmin   = has_capability('moodle/site:config', $systemcontext);
 $staffrolenames = ['manager', 'coursecreator', 'editingteacher', 'teacher'];
 
 $PAGE->set_context($systemcontext);
-$PAGE->set_url(new moodle_url('/question/type/coderunner/scripts/student_time_analysis.php'));
+$PAGE->set_url(new moodle_url('/question/type/coderunner/scripts/studenttimeanalysis.php'));
 $PAGE->set_title('CodeRunner: Student time-on-task analysis');
 $PAGE->set_heading('CodeRunner: Student time-on-task analysis');
 
