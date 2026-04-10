@@ -19,7 +19,8 @@
  *
  * Reads the Moodle logstore_standard_log table directly, discards autosave
  * events, and computes per-student hit counts and total time spent, using a
- * configurable idle-gap threshold to detect session boundaries.
+ * configurable idle-gap threshold to detect session boundaries.  In the same
+ * pass it accumulates per-day cohort totals for a time-series chart.
  *
  * Access is permitted to site admins and to any user holding a teacher,
  * editing teacher, manager, or course creator role in at least one course.
@@ -39,6 +40,7 @@ define('NO_OUTPUT_BUFFERING', true);
 
 require_once(__DIR__ . '/../../../../config.php');
 require_once($CFG->libdir . '/adminlib.php');
+require_once($CFG->dirroot . '/lib/grouplib.php');
 
 // -------------------------------------------------------------------------
 // Access control.
@@ -59,10 +61,12 @@ $PAGE->set_heading('CodeRunner: Student time-on-task analysis');
 // Parameters.
 $courseid     = optional_param('courseid', 0, PARAM_INT);
 $cmid         = optional_param('cmid', 0, PARAM_INT);  // 0 = all activities
+$groupid      = optional_param('groupid', 0, PARAM_INT);  // 0 = all groups
 $startdatestr = optional_param('startdate', '', PARAM_TEXT);
 $enddatestr   = optional_param('enddate', '', PARAM_TEXT);
 $gapminutes   = optional_param('gapminutes', 30, PARAM_INT);
 $download     = optional_param('download', 0, PARAM_INT);
+$submitted    = optional_param('submitted', 0, PARAM_INT);  // 1 only when Analyse clicked
 
 // Convert date strings to Unix timestamps (00:00:00 and 23:59:59 local time).
 $starttime = 0;
@@ -184,10 +188,16 @@ function get_course_activities($courseid) {
         }
     }
 
-    // Build the list then sort alphabetically by label.
+    // Build the list then sort alphabetically by label, excluding non-interactive types.
+    $excludedprefixes = ['Folder:', 'Groupselect:', 'Url:', 'Glossary:', 'Page:', 'Resource:'];
     $options = [];
     foreach ($cms as $cm) {
         $label = ucfirst($cm->modname) . ': ' . ($names[$cm->cmid] ?? ucfirst($cm->modname));
+        foreach ($excludedprefixes as $prefix) {
+            if (strncmp($label, $prefix, strlen($prefix)) === 0) {
+                continue 2;
+            }
+        }
         $options[$cm->cmid] = $label;
     }
     asort($options);
@@ -196,21 +206,46 @@ function get_course_activities($courseid) {
 }
 
 // -------------------------------------------------------------------------
+// Helper: groups in a course for the filter dropdown.
+/**
+ * Returns a groupid => name map of all groups in the course.
+ *
+ * @param int $courseid
+ * @return array  groupid => name
+ */
+function get_course_groups($courseid) {
+    $groups = groups_get_all_groups($courseid);
+    $options = [];
+    foreach ($groups as $g) {
+        $options[$g->id] = $g->name;
+    }
+    return $options;
+}
+
+// -------------------------------------------------------------------------
 // Core analysis function.
 /**
- * Returns an array of per-student stats, sorted by lastname then firstname.
+ * Returns per-student stats and per-day cohort totals in a single pass.
  *
- * Each element is a stdClass with:
- *   userid, firstname, lastname, hits (int), totalseconds (int)
+ * The recordset is iterated once, simultaneously accumulating:
+ *   - per-student session totals (hits and total seconds)
+ *   - per-day cohort totals (sum of intra-session gaps attributed to the day
+ *     of the later event; these sum to exactly the cohort's total seconds)
+ *
+ * Return value is an associative array:
+ *   'students'    => array of stdClass (userid, firstname, lastname, hits,
+ *                    totalseconds), sorted by lastname then firstname
+ *   'dailytotals' => array of date_string => total_cohort_seconds_that_day
  *
  * @param int   $courseid    Moodle course id
  * @param int   $cmid        Course-module id to filter on, or 0 for all
+ * @param int   $groupid     Group id to filter on, or 0 for all groups
  * @param int   $starttime   Unix timestamp (inclusive lower bound)
  * @param int   $endtime     Unix timestamp (inclusive upper bound)
  * @param int   $gapseconds  Idle-gap threshold in seconds
- * @return array
+ * @return array  ['students' => [...], 'dailytotals' => [...]]
  */
-function analyse_course($courseid, $cmid, $starttime, $endtime, $gapseconds) {
+function analyse_course($courseid, $cmid, $groupid, $starttime, $endtime, $gapseconds) {
     global $DB;
 
     // Exclude autosave events.
@@ -230,6 +265,14 @@ function analyse_course($courseid, $cmid, $starttime, $endtime, $gapseconds) {
         $activityparams['activityctx'] = context_module::instance($cmid)->id;
     }
 
+    // Optional group filter.
+    $groupsql    = '';
+    $groupparams = [];
+    if ($groupid) {
+        $groupsql = 'AND l.userid IN (SELECT gm.userid FROM {groups_members} gm WHERE gm.groupid = :groupid)';
+        $groupparams['groupid'] = $groupid;
+    }
+
     // Include only users enrolled with the student role.
     $sql = "SELECT l.id, l.userid, l.timecreated
               FROM {logstore_standard_log} l
@@ -238,6 +281,7 @@ function analyse_course($courseid, $cmid, $starttime, $endtime, $gapseconds) {
                AND l.timecreated <= :endtime
                AND l.action      $notinsql
                $activitysql
+               $groupsql
                AND l.userid      != 0
                AND l.userid      IN (
                        SELECT ra.userid
@@ -261,13 +305,15 @@ function analyse_course($courseid, $cmid, $starttime, $endtime, $gapseconds) {
             'ctxcourse' => $courseid,
         ],
         $notinparams,
-        $activityparams
+        $activityparams,
+        $groupparams
     );
 
     // Use a recordset to keep memory usage low for large courses.
     $rs = $DB->get_recordset_sql($sql, $params);
 
-    $userstats = [];
+    $userstats   = [];
+    $dailytotals = [];  // Date string => total cohort seconds that day.
 
     foreach ($rs as $row) {
         $uid = $row->userid;
@@ -282,8 +328,14 @@ function analyse_course($courseid, $cmid, $starttime, $endtime, $gapseconds) {
 
         $gap = $t - $stat['lastt'];
         if ($gap > $gapseconds) {
+            // Session boundary: close the previous session.
             $stat['seconds'] += $stat['lastt'] - $stat['sessionstart'];
             $stat['sessionstart'] = $t;
+        } else if ($gap > 0) {
+            // Active gap within a session: attribute to the day of the later event.
+            // These per-gap contributions sum to exactly the total session seconds.
+            $day = date('Y-m-d', $t);
+            $dailytotals[$day] = ($dailytotals[$day] ?? 0) + $gap;
         }
         $stat['lastt'] = $t;
         unset($stat);
@@ -297,7 +349,7 @@ function analyse_course($courseid, $cmid, $starttime, $endtime, $gapseconds) {
     unset($stat);
 
     if (empty($userstats)) {
-        return [];
+        return ['students' => [], 'dailytotals' => []];
     }
 
     // Fetch names for all relevant users in one query.
@@ -330,7 +382,7 @@ function analyse_course($courseid, $cmid, $starttime, $endtime, $gapseconds) {
         return $cmp !== 0 ? $cmp : strcasecmp($a->firstname, $b->firstname);
     });
 
-    return $results;
+    return ['students' => $results, 'dailytotals' => $dailytotals];
 }
 
 // -------------------------------------------------------------------------
@@ -358,21 +410,27 @@ if ($courseid && !isset($allowedcourses[$courseid])) {
     throw new \moodle_exception('accessdenied', 'admin');
 }
 
-// Build activity list for the selected course (empty if no course chosen yet).
+// Build activity and group lists for the selected course (empty if no course chosen yet).
 $activities = $courseid ? get_course_activities($courseid) : [];
+$groups     = $courseid ? get_course_groups($courseid) : [];
 
 // -------------------------------------------------------------------------
 // CSV download.
 if ($courseid && !$dateerror && $download) {
-    $results = analyse_course($courseid, $cmid, $starttime, $endtime, $gapseconds);
-    $course  = $DB->get_record('course', ['id' => $courseid], 'shortname', MUST_EXIST);
+    $analysisresult = analyse_course($courseid, $cmid, $groupid, $starttime, $endtime, $gapseconds);
+    $results        = $analysisresult['students'];
+    $course         = $DB->get_record('course', ['id' => $courseid], 'shortname', MUST_EXIST);
 
     $activitylabel = '';
     if ($cmid && isset($activities[$cmid])) {
         $activitylabel = '_' . clean_filename($activities[$cmid]);
     }
+    $grouplabel = '';
+    if ($groupid && isset($groups[$groupid])) {
+        $grouplabel = '_' . clean_filename($groups[$groupid]);
+    }
 
-    $filename = 'student_time_' . clean_filename($course->shortname) . $activitylabel . '_' . date('Ymd') . '.csv';
+    $filename = 'student_time_' . clean_filename($course->shortname) . $activitylabel . $grouplabel . '_' . date('Ymd') . '.csv';
     header('Content-Type: text/csv; charset=utf-8');
     header('Content-Disposition: attachment; filename="' . $filename . '"');
     header('Cache-Control: no-cache, no-store');
@@ -395,21 +453,59 @@ if ($courseid && !$dateerror && $download) {
 // -------------------------------------------------------------------------
 // HTML output.
 echo $OUTPUT->header();
-echo html_writer::tag('h2', 'Student time-on-task analysis');
 
-$defaultstart = $startdatestr ?: date('Y-m-d', strtotime('-6 months'));
+$defaultstart = $startdatestr ?: date('Y-m-d', strtotime('-4 weeks'));
 $defaultend   = $enddatestr ?: date('Y-m-d');
 
-// Reload the page when the course changes so the activity dropdown updates.
-$reloadjs = "document.getElementById('id_courseid').addEventListener('change', function() {
+// If the Analyse button was clicked, render the form non-interactive immediately so
+// the user sees a locked form and "Computing data..." before the server starts work.
+// The AMD JS below restores the form once the page has fully loaded (analysis done).
+// NOTE: showComputing() must NOT use `disabled` on fields — disabled fields are
+// excluded from GET form submissions, which would drop courseid/groupid from the URL.
+// pointer-events and opacity are used instead.
+$iscomputing = $courseid && !$dateerror && !$download && $submitted;
+$formstyle   = $iscomputing ? 'pointer-events:none; opacity:0.5' : '';
+
+$reloadjs = "
+var indicator = document.getElementById('computing-indicator');
+var resultsEl = document.getElementById('analysis-results');
+var form      = document.getElementById('cr-timeanalysis-form');
+
+function showComputing() {
+    if (indicator) indicator.style.display = 'inline-block';
+    if (resultsEl) resultsEl.style.display = 'none';
+    if (form) { form.style.pointerEvents = 'none'; form.style.opacity = '0.5'; }
+}
+
+// Page has fully loaded — analysis is done.  Restore the form to interactive state.
+if (indicator) indicator.style.display = 'none';
+if (form)      { form.style.pointerEvents = ''; form.style.opacity = ''; }
+
+// Reload the page when the course changes so activity/group dropdowns update.
+// Drop 'submitted' so the reload does not trigger computation.
+document.getElementById('id_courseid').addEventListener('change', function() {
     var url = new URL(window.location.href);
     url.searchParams.set('courseid', this.value);
     url.searchParams.delete('cmid');
+    url.searchParams.delete('groupid');
+    url.searchParams.delete('submitted');
     window.location.href = url.toString();
-});";
+});
+
+// Show computing state when the Analyse button is clicked.
+if (form) {
+    form.addEventListener('submit', function() { showComputing(); });
+}
+
+";
 $PAGE->requires->js_amd_inline($reloadjs);
 
-echo html_writer::start_tag('form', ['method' => 'get', 'action' => $PAGE->url]);
+echo html_writer::start_tag('form', [
+    'method' => 'get',
+    'action' => $PAGE->url,
+    'id'     => 'cr-timeanalysis-form',
+    'style'  => $formstyle,
+]);
 echo html_writer::start_tag('table', ['class' => 'generaltable']);
 
 // Course selector.
@@ -434,6 +530,20 @@ if ($courseid) {
         $cmid,
         ['0' => '-- All activities --'],
         ['id' => 'id_cmid']
+    ));
+    echo html_writer::end_tag('tr');
+}
+
+// Group selector (only shown once a course is selected and it has groups).
+if ($courseid && !empty($groups)) {
+    echo html_writer::start_tag('tr');
+    echo html_writer::tag('td', html_writer::tag('label', 'Group:', ['for' => 'id_groupid']));
+    echo html_writer::tag('td', html_writer::select(
+        $groups,
+        'groupid',
+        $groupid,
+        ['0' => '-- All students --'],
+        ['id' => 'id_groupid']
     ));
     echo html_writer::end_tag('tr');
 }
@@ -483,7 +593,10 @@ echo html_writer::tag(
 );
 echo html_writer::end_tag('tr');
 
-// Buttons.
+// Hidden field so the server knows the Analyse button was clicked.
+echo html_writer::empty_tag('input', ['type' => 'hidden', 'name' => 'submitted', 'value' => '1']);
+
+// Analyse button.
 echo html_writer::start_tag('tr');
 echo html_writer::tag('td', '');
 echo html_writer::tag(
@@ -495,24 +608,38 @@ echo html_writer::end_tag('tr');
 echo html_writer::end_tag('table');
 echo html_writer::end_tag('form');
 
+$indicatordisplay = $iscomputing ? 'inline-block' : 'none';
+echo html_writer::tag('p', "\u{23F3} Computing data, please wait\u{2026}", [
+    'id'    => 'computing-indicator',
+    'style' => "display:$indicatordisplay; margin-top:1.5em; font-weight:bold; " .
+               "background:#fff3cd; color:#856404; " .
+               "border:1px solid #ffc107; border-radius:4px; padding:.5em 1em;",
+]);
+
 // Error/results section.
 if ($dateerror) {
     echo $OUTPUT->notification($dateerror, 'notifyproblem');
 }
 
-if ($courseid && !$dateerror) {
+echo html_writer::start_tag('div', ['id' => 'analysis-results', 'style' => 'margin-top:2em']);
+
+if ($courseid && !$dateerror && $submitted) {
     $startlabel    = $startdatestr ?: '(beginning of logs)';
     $endlabel      = $enddatestr ?: '(end of logs)';
     $activitylabel = ($cmid && isset($activities[$cmid])) ? $activities[$cmid] : 'All activities';
+    $grouplabel    = ($groupid && isset($groups[$groupid])) ? $groups[$groupid] : 'All students';
 
     echo html_writer::tag(
         'p',
         "Analysing course ID <strong>$courseid</strong> &mdash; " .
         "activity: <strong>" . s($activitylabel) . "</strong> &mdash; " .
+        "group: <strong>" . s($grouplabel) . "</strong> &mdash; " .
         "$startlabel to $endlabel &mdash; idle gap: <strong>{$gapminutes} min</strong>"
     );
 
-    $results = analyse_course($courseid, $cmid, $starttime, $endtime, $gapseconds);
+    $analysisresult = analyse_course($courseid, $cmid, $groupid, $starttime, $endtime, $gapseconds);
+    $results        = $analysisresult['students'];
+    $dailytotals    = $analysisresult['dailytotals'];
 
     if (empty($results)) {
         echo $OUTPUT->notification('No log entries found for the selected criteria.', 'notifymessage');
@@ -528,9 +655,97 @@ if ($courseid && !$dateerror) {
             format_duration($totalsecs) . " (H:MM) &mdash; average: <strong>{$avghours} hrs</strong>"
         );
 
+        // -------------------------------------------------------------------------
+        // Time-series chart: average hours per week across the cohort.
+        if (!empty($dailytotals)) {
+            // Determine chart date range.  Use explicit date parameters when given;
+            // fall back to the actual span of the data.
+            $chartstart = $startdatestr ? date('Y-m-d', $starttime) : min(array_keys($dailytotals));
+            $chartend = $enddatestr ? date('Y-m-d', $endtime) : max(array_keys($dailytotals));
+
+            // One data point per day; weekly ticks aligned to Mondays via stepSize=7.
+            // We rewind to the Monday on or before chartstart so index 0 is always a
+            // Monday, meaning stepSize=7 tick positions (0, 7, 14, …) are all Mondays.
+            $chartlabels = [];
+            $chartvalues = [];
+            $day = strtotime($chartstart);
+            $end = strtotime($chartend);
+            $dow = (int)date('N', $day);  // 1=Mon … 7=Sun
+            if ($dow !== 1) {
+                $day = strtotime('-' . ($dow - 1) . ' days', $day);
+            }
+            while ($day <= $end) {
+                $key           = date('Y-m-d', $day);
+                $chartlabels[] = (date('N', $day) === '1') ? date('D j/n/y', $day) : '';
+                $chartvalues[] = round(($dailytotals[$key] ?? 0) / $totalstudents / 3600, 4);
+                $day           = strtotime('+1 day', $day);
+            }
+
+            $canvasid  = html_writer::random_id('crta_');
+            $labeljson = json_encode($chartlabels);
+            $valuejson = json_encode($chartvalues);
+            $titlejson = json_encode("Daily activity \u{2014} cohort: $totalstudents students");
+
+            $canvastag = html_writer::empty_tag('canvas', ['id' => $canvasid]);
+            echo html_writer::tag(
+                'div',
+                $canvastag,
+                ['style' => 'position:relative; height:350px; margin-bottom:1em']
+            );
+
+            $PAGE->requires->js_amd_inline("
+require(['core/chartjs-lazy'], function(Chart) {
+    var ctx = document.getElementById('$canvasid');
+    if (!ctx) { return; }
+    new Chart(ctx, {
+        type: 'line',
+        data: {
+            labels: $labeljson,
+            datasets: [{
+                data: $valuejson,
+                borderColor: 'rgb(54,162,235)',
+                backgroundColor: 'rgba(54,162,235,0.1)',
+                tension: 0,
+                pointRadius: 2,
+                fill: true
+            }]
+        },
+        options: {
+            animation: false,
+            plugins: {
+                title: { display: true, text: $titlejson },
+                legend: { display: false }
+            },
+            scales: {
+                x: {
+                    ticks: {
+                        autoSkip: false,
+                        maxRotation: 45,
+                        minRotation: 45,
+                        callback: function(val, idx) {
+                            var lbl = this.getLabelForValue(val);
+                            return lbl ? lbl : null;
+                        }
+                    }
+                },
+                y: {
+                    title: { display: true, text: 'Avg hours/day' },
+                    min: 0
+                }
+            }
+        }
+    });
+});
+");
+        }
+
+        echo html_writer::tag('hr', '');
+        echo html_writer::tag('h3', 'Per-student detail');
+
         $dlurl = new moodle_url($PAGE->url, [
             'courseid'   => $courseid,
             'cmid'       => $cmid,
+            'groupid'    => $groupid,
             'startdate'  => $startdatestr,
             'enddate'    => $enddatestr,
             'gapminutes' => $gapminutes,
@@ -556,5 +771,7 @@ if ($courseid && !$dateerror) {
         echo html_writer::table($table);
     }
 }
+
+echo html_writer::end_tag('div');  // End #analysis-results.
 
 echo $OUTPUT->footer();
