@@ -89,8 +89,10 @@ require_login();
 
 if ($courseid && $contextid) {
     // Worker mode: display prototype usage for the selected context.
-    $PAGE->set_url('/question/type/coderunner/scripts/prototypeusage.php',
-        ['courseid' => $courseid, 'contextid' => $contextid, 'name' => $name]);
+    $PAGE->set_url(
+        '/question/type/coderunner/scripts/prototypeusage.php',
+        ['courseid' => $courseid, 'contextid' => $contextid, 'name' => $name]
+    );
     $PAGE->set_context($context);
     $PAGE->set_title(get_string('prototypeusage', 'qtype_coderunner'));
 
@@ -162,7 +164,8 @@ if ($courseid && $contextid) {
                 $courseid = $course->id;
                 $contextid = $course->contextid;
                 $coursecontext = context_course::instance($courseid);
-                if (!has_capability('moodle/grade:viewall', $coursecontext) || !array_key_exists($contextid, $availablequestionsbycontext)) {
+                $hasviewall = has_capability('moodle/grade:viewall', $coursecontext);
+                if (!$hasviewall || !array_key_exists($contextid, $availablequestionsbycontext)) {
                     continue;
                 }
                 $contextdata = $availablequestionsbycontext[$contextid];

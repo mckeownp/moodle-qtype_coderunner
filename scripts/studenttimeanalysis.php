@@ -41,8 +41,7 @@ require_once(__DIR__ . '/../../../../config.php');
 require_once($CFG->libdir . '/adminlib.php');
 
 // -------------------------------------------------------------------------
-// Access control
-// -------------------------------------------------------------------------
+// Access control.
 require_login();
 
 $systemcontext = context_system::instance();
@@ -57,14 +56,13 @@ $PAGE->set_title('CodeRunner: Student time-on-task analysis');
 $PAGE->set_heading('CodeRunner: Student time-on-task analysis');
 
 // -------------------------------------------------------------------------
-// Parameters
-// -------------------------------------------------------------------------
-$courseid     = optional_param('courseid',   0,  PARAM_INT);
-$cmid         = optional_param('cmid',       0,  PARAM_INT);  // 0 = all activities
-$startdatestr = optional_param('startdate',  '', PARAM_TEXT);
-$enddatestr   = optional_param('enddate',    '', PARAM_TEXT);
+// Parameters.
+$courseid     = optional_param('courseid', 0, PARAM_INT);
+$cmid         = optional_param('cmid', 0, PARAM_INT);  // 0 = all activities
+$startdatestr = optional_param('startdate', '', PARAM_TEXT);
+$enddatestr   = optional_param('enddate', '', PARAM_TEXT);
 $gapminutes   = optional_param('gapminutes', 30, PARAM_INT);
-$download     = optional_param('download',   0,  PARAM_INT);
+$download     = optional_param('download', 0, PARAM_INT);
 
 // Convert date strings to Unix timestamps (00:00:00 and 23:59:59 local time).
 $starttime = 0;
@@ -91,8 +89,7 @@ if ($enddatestr !== '') {
 $gapseconds = max(1, $gapminutes) * 60;
 
 // -------------------------------------------------------------------------
-// Helper: courses the current user may report on
-// -------------------------------------------------------------------------
+// Helper: courses the current user may report on.
 /**
  * Returns an id => fullname map of courses the current user may analyse.
  * Site admins see all courses. Others see only courses where they hold one
@@ -107,7 +104,7 @@ function get_allowed_courses() {
         return $courses;
     }
 
-    list($rolesql, $roleparams) = $DB->get_in_or_equal($staffrolenames, SQL_PARAMS_NAMED, 'role');
+    [$rolesql, $roleparams] = $DB->get_in_or_equal($staffrolenames, SQL_PARAMS_NAMED, 'role');
     $sql = "SELECT DISTINCT c.id, c.fullname
               FROM {course} c
               JOIN {context} ctx ON ctx.instanceid = c.id AND ctx.contextlevel = :ctxlevel
@@ -123,8 +120,7 @@ function get_allowed_courses() {
 }
 
 // -------------------------------------------------------------------------
-// Helper: activities in a course for the filter dropdown
-// -------------------------------------------------------------------------
+// Helper: activities in a course for the filter dropdown.
 /**
  * Returns a cmid => label map of all activities in the course, sorted by
  * section order then activity name, grouped by module type label.
@@ -156,16 +152,16 @@ function get_course_activities($courseid) {
     }
 
     // Group cmids by module type so we can fetch instance names in bulk.
-    $bymod = [];  // modname => [cmid => record]
+    $bymod = [];  // Maps modname => [cmid => record].
     foreach ($cms as $cm) {
         $bymod[$cm->modname][$cm->cmid] = $cm;
     }
 
     // Fetch instance names for each module type.
-    $names = [];  // cmid => activity name
+    $names = [];  // Maps cmid => activity name.
     foreach ($bymod as $modname => $modcms) {
         $cmids = array_keys($modcms);
-        list($insql, $inparams) = $DB->get_in_or_equal($cmids, SQL_PARAMS_NAMED, 'cm');
+        [$insql, $inparams] = $DB->get_in_or_equal($cmids, SQL_PARAMS_NAMED, 'cm');
         try {
             // Most activity tables have a 'name' column; a few (label) do not.
             $rows = $DB->get_records_sql(
@@ -200,8 +196,7 @@ function get_course_activities($courseid) {
 }
 
 // -------------------------------------------------------------------------
-// Core analysis function
-// -------------------------------------------------------------------------
+// Core analysis function.
 /**
  * Returns an array of per-student stats, sorted by lastname then firstname.
  *
@@ -220,8 +215,11 @@ function analyse_course($courseid, $cmid, $starttime, $endtime, $gapseconds) {
 
     // Exclude autosave events.
     $excludedactions = ['autosaved', 'autosave'];
-    list($notinsql, $notinparams) = $DB->get_in_or_equal(
-        $excludedactions, SQL_PARAMS_NAMED, 'excact', false
+    [$notinsql, $notinparams] = $DB->get_in_or_equal(
+        $excludedactions,
+        SQL_PARAMS_NAMED,
+        'excact',
+        false
     );
 
     // Optional activity filter: restrict to the context of the chosen cm.
@@ -303,7 +301,7 @@ function analyse_course($courseid, $cmid, $starttime, $endtime, $gapseconds) {
     }
 
     // Fetch names for all relevant users in one query.
-    list($uidsql, $uidparams) = $DB->get_in_or_equal(array_keys($userstats), SQL_PARAMS_NAMED, 'uid');
+    [$uidsql, $uidparams] = $DB->get_in_or_equal(array_keys($userstats), SQL_PARAMS_NAMED, 'uid');
     $users = $DB->get_records_sql(
         "SELECT id, firstname, lastname FROM {user} WHERE id $uidsql",
         $uidparams
@@ -321,13 +319,13 @@ function analyse_course($courseid, $cmid, $starttime, $endtime, $gapseconds) {
         $obj = new stdClass();
         $obj->userid       = $uid;
         $obj->firstname    = $u ? $u->firstname : "[$uid]";
-        $obj->lastname     = $u ? $u->lastname  : '';
+        $obj->lastname     = $u ? $u->lastname : '';
         $obj->hits         = $stat['hits'];
         $obj->totalseconds = $stat['seconds'];
         $results[] = $obj;
     }
 
-    usort($results, function($a, $b) {
+    usort($results, function ($a, $b) {
         $cmp = strcasecmp($a->lastname, $b->lastname);
         return $cmp !== 0 ? $cmp : strcasecmp($a->firstname, $b->firstname);
     });
@@ -336,8 +334,7 @@ function analyse_course($courseid, $cmid, $starttime, $endtime, $gapseconds) {
 }
 
 // -------------------------------------------------------------------------
-// Format helpers
-// -------------------------------------------------------------------------
+// Format helpers.
 function format_duration($seconds) {
     $seconds = max(0, (int)$seconds);
     $h = intdiv($seconds, 3600);
@@ -350,8 +347,7 @@ function duration_minutes($seconds) {
 }
 
 // -------------------------------------------------------------------------
-// Gate: user must have access to at least one course (or be site admin)
-// -------------------------------------------------------------------------
+// Gate: user must have access to at least one course (or be site admin).
 $allowedcourses = get_allowed_courses();
 if (empty($allowedcourses)) {
     require_capability('moodle/site:config', $systemcontext); // Throws an appropriate access error.
@@ -359,15 +355,14 @@ if (empty($allowedcourses)) {
 
 // If a course was submitted, verify the user is actually allowed to report on it.
 if ($courseid && !isset($allowedcourses[$courseid])) {
-    print_error('accessdenied', 'admin');
+    throw new \moodle_exception('accessdenied', 'admin');
 }
 
 // Build activity list for the selected course (empty if no course chosen yet).
 $activities = $courseid ? get_course_activities($courseid) : [];
 
 // -------------------------------------------------------------------------
-// CSV download
-// -------------------------------------------------------------------------
+// CSV download.
 if ($courseid && !$dateerror && $download) {
     $results = analyse_course($courseid, $cmid, $starttime, $endtime, $gapseconds);
     $course  = $DB->get_record('course', ['id' => $courseid], 'shortname', MUST_EXIST);
@@ -398,13 +393,12 @@ if ($courseid && !$dateerror && $download) {
 }
 
 // -------------------------------------------------------------------------
-// HTML output
-// -------------------------------------------------------------------------
+// HTML output.
 echo $OUTPUT->header();
 echo html_writer::tag('h2', 'Student time-on-task analysis');
 
 $defaultstart = $startdatestr ?: date('Y-m-d', strtotime('-6 months'));
-$defaultend   = $enddatestr   ?: date('Y-m-d');
+$defaultend   = $enddatestr ?: date('Y-m-d');
 
 // Reload the page when the course changes so the activity dropdown updates.
 $reloadjs = "document.getElementById('id_courseid').addEventListener('change', function() {
@@ -421,23 +415,34 @@ echo html_writer::start_tag('table', ['class' => 'generaltable']);
 // Course selector.
 echo html_writer::start_tag('tr');
 echo html_writer::tag('td', html_writer::tag('label', 'Course:', ['for' => 'id_courseid']));
-echo html_writer::tag('td', html_writer::select($allowedcourses, 'courseid', $courseid,
-    ['0' => '-- select --'], ['id' => 'id_courseid']));
+echo html_writer::tag('td', html_writer::select(
+    $allowedcourses,
+    'courseid',
+    $courseid,
+    ['0' => '-- select --'],
+    ['id' => 'id_courseid']
+));
 echo html_writer::end_tag('tr');
 
 // Activity selector (only shown once a course is selected).
 if ($courseid) {
     echo html_writer::start_tag('tr');
     echo html_writer::tag('td', html_writer::tag('label', 'Activity:', ['for' => 'id_cmid']));
-    echo html_writer::tag('td', html_writer::select($activities, 'cmid', $cmid,
-        ['0' => '-- All activities --'], ['id' => 'id_cmid']));
+    echo html_writer::tag('td', html_writer::select(
+        $activities,
+        'cmid',
+        $cmid,
+        ['0' => '-- All activities --'],
+        ['id' => 'id_cmid']
+    ));
     echo html_writer::end_tag('tr');
 }
 
 // Start date.
 echo html_writer::start_tag('tr');
 echo html_writer::tag('td', html_writer::tag('label', 'Start date:', ['for' => 'startdate']));
-echo html_writer::tag('td',
+echo html_writer::tag(
+    'td',
     html_writer::empty_tag('input', [
         'type'  => 'date',
         'id'    => 'startdate',
@@ -450,7 +455,8 @@ echo html_writer::end_tag('tr');
 // End date.
 echo html_writer::start_tag('tr');
 echo html_writer::tag('td', html_writer::tag('label', 'End date:', ['for' => 'enddate']));
-echo html_writer::tag('td',
+echo html_writer::tag(
+    'td',
     html_writer::empty_tag('input', [
         'type'  => 'date',
         'id'    => 'enddate',
@@ -463,7 +469,8 @@ echo html_writer::end_tag('tr');
 // Gap threshold.
 echo html_writer::start_tag('tr');
 echo html_writer::tag('td', html_writer::tag('label', 'Idle-gap threshold (minutes):', ['for' => 'gapminutes']));
-echo html_writer::tag('td',
+echo html_writer::tag(
+    'td',
     html_writer::empty_tag('input', [
         'type'  => 'number',
         'id'    => 'gapminutes',
@@ -479,7 +486,8 @@ echo html_writer::end_tag('tr');
 // Buttons.
 echo html_writer::start_tag('tr');
 echo html_writer::tag('td', '');
-echo html_writer::tag('td',
+echo html_writer::tag(
+    'td',
     html_writer::empty_tag('input', ['type' => 'submit', 'value' => 'Analyse', 'class' => 'btn btn-primary'])
 );
 echo html_writer::end_tag('tr');
@@ -487,17 +495,18 @@ echo html_writer::end_tag('tr');
 echo html_writer::end_tag('table');
 echo html_writer::end_tag('form');
 
-// ---- Error / results ----
+// Error/results section.
 if ($dateerror) {
     echo $OUTPUT->notification($dateerror, 'notifyproblem');
 }
 
 if ($courseid && !$dateerror) {
     $startlabel    = $startdatestr ?: '(beginning of logs)';
-    $endlabel      = $enddatestr   ?: '(end of logs)';
+    $endlabel      = $enddatestr ?: '(end of logs)';
     $activitylabel = ($cmid && isset($activities[$cmid])) ? $activities[$cmid] : 'All activities';
 
-    echo html_writer::tag('p',
+    echo html_writer::tag(
+        'p',
         "Analysing course ID <strong>$courseid</strong> &mdash; " .
         "activity: <strong>" . s($activitylabel) . "</strong> &mdash; " .
         "$startlabel to $endlabel &mdash; idle gap: <strong>{$gapminutes} min</strong>"
@@ -513,7 +522,8 @@ if ($courseid && !$dateerror) {
         $totalsecs     = array_sum(array_column($results, 'totalseconds'));
         $avghours      = $totalstudents > 0 ? number_format($totalsecs / $totalstudents / 3600, 2) : '0.00';
 
-        echo html_writer::tag('p',
+        echo html_writer::tag(
+            'p',
             "$totalstudents students &mdash; $totalhits total hits &mdash; total time: " .
             format_duration($totalsecs) . " (H:MM) &mdash; average: <strong>{$avghours} hrs</strong>"
         );
@@ -526,7 +536,8 @@ if ($courseid && !$dateerror) {
             'gapminutes' => $gapminutes,
             'download'   => 1,
         ]);
-        echo html_writer::tag('p',
+        echo html_writer::tag(
+            'p',
             html_writer::link($dlurl, 'Download as CSV', ['class' => 'btn btn-sm btn-secondary'])
         );
 

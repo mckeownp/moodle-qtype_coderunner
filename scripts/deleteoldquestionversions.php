@@ -46,9 +46,7 @@ require_once(__DIR__ . '/../db/upgradelib.php');
 const BUTTONSTYLE = 'background-color: #FFFFD0; padding: 2px 2px 0px 2px; border: 4px solid white; margin-right: 4px;';
 const DRYRUNSTYLE = 'background-color: #D0F0FF; padding: 2px 2px 0px 2px; border: 4px solid white;';
 
-// ============================================================
 // Helper functions used by the index (context-listing) view.
-// ============================================================
 
 /**
  * Get count of questions with multiple versions in a context.
@@ -156,9 +154,7 @@ function display_context_with_buttons($contextid, $name, $numcoderunnerquestions
     echo html_writer::end_tag('li');
 }
 
-// ============================================================
 // Helper functions used by the worker (deletion) view.
-// ============================================================
 
 /**
  * Get all question bank entries with multiple versions in a context.
@@ -241,9 +237,7 @@ function delete_question_version($questionid) {
     }
 }
 
-// ============================================================
 // Main script logic.
-// ============================================================
 
 // Get optional parameters.
 $contextid = optional_param('contextid', 0, PARAM_INT);
@@ -657,7 +651,6 @@ if ($contextid > 0) {
 }
 </style>
 HTML;
-
 } else {
     // Index mode: list accessible contexts with deletion buttons.
     $context = context_system::instance();
@@ -779,7 +772,6 @@ ul {
 }
 </style>
 HTML;
-
 }
 
 echo $OUTPUT->footer();
