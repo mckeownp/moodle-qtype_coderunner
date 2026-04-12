@@ -15,7 +15,7 @@
 // along with CodeRunner.  If not, see <http://www.gnu.org/licenses/>.
 
 /**
- * Student time-on-task analysis for a given course.
+ * Student time-on-task estimates for a given course or activity.
  *
  * Reads the Moodle logstore_standard_log table directly, discards autosave
  * events, and computes per-student hit counts and total time spent, using a
@@ -609,7 +609,7 @@ echo html_writer::end_tag('table');
 echo html_writer::end_tag('form');
 
 $indicatordisplay = $iscomputing ? 'inline-block' : 'none';
-echo html_writer::tag('p', "\u{23F3} Computing data, please wait\u{2026}", [
+echo html_writer::tag('p', "\u{23F3} Analysing ... please wait\u{2026}", [
     'id'    => 'computing-indicator',
     'style' => "display:$indicatordisplay; margin-top:1.5em; font-weight:bold; " .
                "background:#fff3cd; color:#856404; " .
@@ -663,9 +663,7 @@ if ($courseid && !$dateerror && $submitted) {
             $chartstart = $startdatestr ? date('Y-m-d', $starttime) : min(array_keys($dailytotals));
             $chartend = $enddatestr ? date('Y-m-d', $endtime) : max(array_keys($dailytotals));
 
-            // One data point per day; weekly ticks aligned to Mondays via stepSize=7.
-            // We rewind to the Monday on or before chartstart so index 0 is always a
-            // Monday, meaning stepSize=7 tick positions (0, 7, 14, …) are all Mondays.
+            // One data point per day; weekly ticks aligned to Mondays.
             $chartlabels = [];
             $chartvalues = [];
             $day = strtotime($chartstart);
@@ -729,7 +727,7 @@ require(['core/chartjs-lazy'], function(Chart) {
                     }
                 },
                 y: {
-                    title: { display: true, text: 'Avg hours/day' },
+                    title: { display: true, text: 'Estimated hours on server/student/day' },
                     min: 0
                 }
             }
@@ -741,6 +739,7 @@ require(['core/chartjs-lazy'], function(Chart) {
 
         echo html_writer::tag('hr', '');
         echo html_writer::tag('h3', 'Per-student detail');
+        echo html_writer::tag('p', 'Rough estimates of active time on server for each student. Indicative only.');
 
         $dlurl = new moodle_url($PAGE->url, [
             'courseid'   => $courseid,

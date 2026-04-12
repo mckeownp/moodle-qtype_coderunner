@@ -192,6 +192,31 @@ display_tool_card(
 
 echo html_writer::end_tag('div'); // Row.
 
+// Analytics.
+display_category(
+    get_string('mgmt_cat_analytics_title', 'qtype_coderunner'),
+    get_string('mgmt_cat_analytics_desc', 'qtype_coderunner')
+);
+echo html_writer::start_tag('div', ['class' => 'row']);
+
+display_tool_card(
+    get_string('mgmt_tool_analytics_studenttime_title', 'qtype_coderunner'),
+    get_string('mgmt_tool_analytics_studenttime_desc', 'qtype_coderunner'),
+    '/question/type/coderunner/scripts/studenttimeanalysis.php',
+    'fa fa-clock-o',
+    'info'
+);
+
+display_tool_card(
+    get_string('mgmt_tool_analytics_quiztrajectory_title', 'qtype_coderunner'),
+    get_string('mgmt_tool_analytics_quiztrajectory_desc', 'qtype_coderunner'),
+    '/question/type/coderunner/scripts/quiztrajectory.php',
+    'fa fa-line-chart',
+    'info'
+);
+
+echo html_writer::end_tag('div'); // Row.
+
 // Add custom styling for cards.
 echo <<<HTML
 <style>
