@@ -1,5 +1,9 @@
 # CHANGE HISTORY
 
+### 13 April 2026, 5.9.1
+
+Add the two analytics scripts (studenttimeanalysis and quiztrajectory) to the management page.
+
 ### 8 April 2026, 5.9.0
 
 Extensive refactoring of scripts, merging all {scriptname}index.php and {scriptname}.php pairs.
