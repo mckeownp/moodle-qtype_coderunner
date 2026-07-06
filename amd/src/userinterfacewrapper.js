@@ -146,30 +146,6 @@ define(['core/templates', 'core/notification'], function(Templates, Notification
         return pattern.test(textareaId);
     }
 
-
-
-    /**
-     * Computes the fnv1a64 hash for the given string (encoded to UTF-8)
-     * @function fnv1a64
-     * @param {string} str - The string to hash.
-     * @returns {string} hexDigest - The hex digest of the hash value.
-     */
-    function fnv1a64(str) {
-        /* eslint-disable no-bitwise */
-        const encoder = new TextEncoder(); // UTF-8 by default
-        const bytes = encoder.encode(str);
-
-        let hash = BigInt('0xcbf29ce484222325');
-        const prime = BigInt('0x100000001b3');
-
-        for (let byte of bytes) {
-            hash ^= BigInt(byte);
-            hash = (hash * prime) & BigInt('0xffffffffffffffff');
-        }
-        const hexDigest = hash.toString(16);
-        return hexDigest;
-    }
-
     /**
      * Computes the fnv1a32 hash for the given string (encoded to UTF-8)
      * @function fnv1a32

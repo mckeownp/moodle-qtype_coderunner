@@ -45,25 +45,6 @@ class qtype_coderunner_renderer extends qtype_renderer {
      * @return string HTML fragment.
      */
 
-    public function fnv1a64($str) {
-        // This isn't working - use the fnv1a32 below
-        $str = mb_convert_encoding($str, 'UTF-8'); // Ensure UTF-8 encoding.
-        $hash = 0xcbf29ce484222325;
-        $prime = 0x100000001b3;
-
-        for ($i = 0; $i < strlen($str); $i++) {
-            $hash ^= ord($str[$i]);
-            $hash = ($hash * $prime) & 0xffffffffffffffff;
-        }
-        return dechex($hash);
-
-        // Or maybe could use bytes?.
-        // $bytes = unpack('C*', $str);
-        // foreach ($bytes as $byte) {
-        //    $hash ^= $byte;
-        //    $hash = ($hash * $prime) & 0xffffffffffffffff;
-    }
-
 
     public function fnv1a32($str) {
         $data = $str;  // mb_convert_encoding($str, 'UTF-8');
