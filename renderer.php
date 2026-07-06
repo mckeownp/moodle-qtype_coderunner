@@ -44,6 +44,49 @@ class qtype_coderunner_renderer extends qtype_renderer {
      * @param question_display_options $options controls what should and should not be displayed.
      * @return string HTML fragment.
      */
+
+    public function fnv1a64($str) {
+        // This isn't working - use the fnv1a32 below
+        $str = mb_convert_encoding($str, 'UTF-8'); // Ensure UTF-8 encoding.
+        $hash = 0xcbf29ce484222325;
+        $prime = 0x100000001b3;
+
+        for ($i = 0; $i < strlen($str); $i++) {
+            $hash ^= ord($str[$i]);
+            $hash = ($hash * $prime) & 0xffffffffffffffff;
+        }
+        return dechex($hash);
+
+        // Or maybe could use bytes?.
+        // $bytes = unpack('C*', $str);
+        // foreach ($bytes as $byte) {
+        //    $hash ^= $byte;
+        //    $hash = ($hash * $prime) & 0xffffffffffffffff;
+    }
+
+
+    public function fnv1a32($str) {
+        $data = $str;  // mb_convert_encoding($str, 'UTF-8');
+        $hash = (float) 0x811c9dc5;
+        $prime = (float) 0x01000193;
+        // echo 'Length = ', mb_strlen($data, 'UTF-8'), '---------- ';
+        // for ($i = 0; $i < mb_strlen($data, 'UTF-8'); $i++) {
+        //   $charcode = ord(mb_substr($data, $i, 1, 'UTF-8'));
+        for ($i = 0; $i < strlen($data); $i++) {
+            $charcode = ord($data[$i]);
+            // echo $i, "c={$charcode}, h={$hash} ...";
+            $hash ^= $charcode;
+            $hashafterxor = $hash;
+            $prod = (int) ($hash * $prime);
+            $hash = $prod & (int) 0xffffffff; // Keep it 32-bit.
+            // echo $i, ", {$data[$i]}, ", $charcode, ", {$hash}, prod={$prod}, {$hashafterxor}; ";
+        }
+        $hexhash = dechex($hash);
+        // echo " *** {$hexhash} ***";
+        return $hexhash;
+    }
+
+
     public function formulation_and_controls(question_attempt $qa, question_display_options $options) {
         global $USER;
 
@@ -132,7 +175,7 @@ class qtype_coderunner_renderer extends qtype_renderer {
         }
 
         $lastgradedstep = null;
-        $lastcheckedsha256 = "";
+        $lastcheckedanswerhash = "";
 
         foreach ($qa->get_step_iterator() as $step) {
             if ($step->has_behaviour_var('_try') || $step->get_behaviour_var('_precheck')) {
@@ -152,16 +195,19 @@ class qtype_coderunner_renderer extends qtype_renderer {
                 if ($question->extractcodefromjson) {
                     $json = json_decode($lastcheckedanswer, true);
                     if ($json !== null && isset($json[constants::ANSWER_CODE_KEY])) {
-                        $lastcheckedanswer = $json[constants::ANSWER_CODE_KEY][0];
+                        $lastcheckedanswer  = $json[constants::ANSWER_CODE_KEY][0];
                     }
                 }
-                $lastcheckedsha256 = hash('sha256', $lastcheckedanswer);
+                // For some strange reason the last answer may end up containing \r\n chars
+                // instead of \n so we will normlalise here until we figure out why!
+                $lastcheckedanswer = str_replace("\r\n", "\n", $lastcheckedanswer);
+                $lastcheckedanswerhash = self::fnv1a32($lastcheckedanswer);
+            } else {
+                $lastcheckedanswer = "";
             }
+        } else {
+            $lastcheckedanswer = "";
         }
-
-
-
-
 
         $rows = isset($question->answerboxlines) ? $question->answerboxlines : constants::DEFAULT_NUM_ROWS;
         $taattributes = $this->answerbox_attributes(
@@ -170,7 +216,8 @@ class qtype_coderunner_renderer extends qtype_renderer {
             $question,
             $currentlanguage,
             $options->readonly,
-            $lastcheckedsha256,
+            $lastcheckedanswerhash,
+            $lastcheckedanswer   // TODO ---------------- remove this when done debugging!
         );
 
         $qtext .= html_writer::tag('textarea', s($currentanswer), $taattributes);
@@ -852,12 +899,13 @@ class qtype_coderunner_renderer extends qtype_renderer {
         $question,
         $currentlanguage,
         $readonly = false,
-        $lastcheckedsha256 = "",
+        $lastcheckedanswerhash = "",
+        $lastcheckedanswer = ""
     ) {
-        // Add in the sha256 of the last checked student answer so that
+        // Add in the hash of the last checked student answer so that
         // javascript can detect when the student's current answer
         // is different from the last one they checked.
-        $question->mergeduiparameters["lastcheckedsha256"] = $lastcheckedsha256;
+        $question->mergeduiparameters["lastcheckedanswerhash"] = $lastcheckedanswerhash;
         $question->mergeduiparameters["extractcodefromjson"] = $question->extractcodefromjson;
 
         $uiparamsjson = json_encode($question->mergeduiparameters);

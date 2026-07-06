@@ -147,8 +147,54 @@ define(['core/templates', 'core/notification'], function(Templates, Notification
     }
 
 
+
     /**
-     * Computers the SHA-256 hash for the current answer and compares it to the hash of
+     * Computes the fnv1a64 hash for the given string (encoded to UTF-8)
+     * @function fnv1a64
+     * @param {string} str - The string to hash.
+     * @returns {string} hexDigest - The hex digest of the hash value.
+     */
+    function fnv1a64(str) {
+        /* eslint-disable no-bitwise */
+        const encoder = new TextEncoder(); // UTF-8 by default
+        const bytes = encoder.encode(str);
+
+        let hash = BigInt('0xcbf29ce484222325');
+        const prime = BigInt('0x100000001b3');
+
+        for (let byte of bytes) {
+            hash ^= BigInt(byte);
+            hash = (hash * prime) & BigInt('0xffffffffffffffff');
+        }
+        const hexDigest = hash.toString(16);
+        return hexDigest;
+    }
+
+    /**
+     * Computes the fnv1a32 hash for the given string (encoded to UTF-8)
+     * @function fnv1a32
+     * @param {string} str - The string to hash.
+     * @returns {string} hexDigest - The hex digest of the hash value.
+     */
+    function fnv1a32(str) {
+        /* eslint-disable no-bitwise */
+        const encoder = new TextEncoder(); // UTF-8 by default
+        const bytes = encoder.encode(str);
+        let hash = 0x811c9dc5 >>> 0; // FNV offset basis.
+        const prime = 0x01000193 >>> 0; // FNV prime.
+        for (let i = 0; i < bytes.length; i++) {
+            hash ^= bytes[i];
+            const hashafterxor = hash >>> 0; // Ensure 32-bit unsigned integer.
+            hash = (hashafterxor * prime) >>> 0; // Ensure 32-bit unsigned integer.
+        }
+        const hexDigest = hash.toString(16);
+        return hexDigest;
+    }
+
+
+
+    /**
+     * Computes the hash for the current answer and compares it to the hash of
      * the last checked answer.
      * If they are different, changes the style on the relevant results div to show
      * that the answer is different from the one that was checked.
@@ -156,7 +202,7 @@ define(['core/templates', 'core/notification'], function(Templates, Notification
      * @async
      * @function compare_with_last_checked
      * @param {string} textareaId - The id for the element containing the text representation of the answer.
-     * @returns {Promise<string>} A promise that resolves to the SHA-256 hash in hexadecimal format.
+     * @returns {string} The hash in hexadecimal format.
      */
     async function compare_with_last_checked(textareaId) {
         if (!textareaId || !isAnAnswer(textareaId)) {
@@ -166,9 +212,13 @@ define(['core/templates', 'core/notification'], function(Templates, Notification
         const params = textArea.getAttribute('data-params');
         if (params) {
             const uiParams = JSON.parse(params);
-            const lastcheckedsha256 = uiParams.lastcheckedsha256; // Will be "" if no last answer.
+            const lastcheckedanswerhash = uiParams.lastcheckedanswerhash; // Will be "" if no last answer.
             const extractcodefromjson = uiParams.extractcodefromjson;
             var currentanswer = textArea.value;
+
+            // Normalising to \n's everywhere...
+            currentanswer = currentanswer.replace(/\r\n/g, '\n');
+
             if (extractcodefromjson == "1") {
                 // Pull out the actual answer part from the JSON.
                 // Otherwise changes in UI variables, eg, expanded/unexpanded scratchpad
@@ -177,7 +227,7 @@ define(['core/templates', 'core/notification'], function(Templates, Notification
                     const answerBits = JSON.parse(currentanswer);
                     if ('answer_code' in answerBits) {
                         // answer_code is currently the name in onstants::ANSWER_CODE_KEY
-                        currentanswer = answerBits.answer_code;
+                        currentanswer = answerBits.answer_code[0];
                     }
                     // Otherwise leave the answer as it is.
                     // It could still be JSON, eg, a graphUI answer
@@ -185,19 +235,23 @@ define(['core/templates', 'core/notification'], function(Templates, Notification
                     // and it doesn't contain values that
                     // aren't related to the answer.
                 } catch(error) {
-                        // couldn't decode JSON so it's not JSON...
+                        // couldn't decode JSON so it's probably not JSON so leave it as is...
                     }
             }
 
-            // Generate SHA256 of answer
-            const encoder = new TextEncoder();
-            const data = encoder.encode(currentanswer);
-            const hashBuffer = await crypto.subtle.digest("SHA-256", data);
-            const hashArray = Array.from(new Uint8Array(hashBuffer));
-            const hashHex = hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+            // Generate SHA256 of answer - old code...
+            //const encoder = new TextEncoder();
+            //const data = encoder.encode(currentanswer);
+            //const hashHex = await crypto.createHash('sha256').update(data).digest('hex');
+            //const hashBuffer = await crypto.subtle.digest("SHA-256", data);
+            //const hashArray = Array.from(new Uint8Array(hashBuffer));
+            //const hashHex = hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
 
-            // Compare with last checked answer
-            if (lastcheckedsha256) {
+            // Now using fnv1a32 in php and JS so as can handle the hash values natively.
+            const hashHex = fnv1a32(currentanswer);
+
+            // Compare with last checked answer if there was one
+            if (lastcheckedanswerhash) {
                 var thisQuestionObject = textArea.closest('[id*="question"]');
                 var thisQuestionId = thisQuestionObject.id;
                 const escapedQuestionId = thisQuestionId.replace(/([:\\.#\[\],=])/g, '\\$1');
@@ -206,11 +260,11 @@ define(['core/templates', 'core/notification'], function(Templates, Notification
                 if (feedbackArea) {
                     const noticeId = textareaId + "-changed-notice";
                     const specificNotice = document.querySelector(`[data-id="${CSS.escape(noticeId)}"]`);
-                    if (hashHex !== lastcheckedsha256) {
+                    if (hashHex !== lastcheckedanswerhash) {
                         if (!specificNotice) {
                             feedbackArea.classList.add('answer-changed');
                             const message = document.createElement("p");
-                            message.textContent = "Results below are for a different answer to your answer above.";
+                            message.textContent = "Results below are for a different answer to the answer above.";
                             message.style.color = "black";
                             message.setAttribute("data-id", noticeId);
                             feedbackArea.parentNode.insertBefore(message, feedbackArea);
