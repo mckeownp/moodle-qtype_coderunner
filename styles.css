@@ -83,12 +83,16 @@ body#page-question-type-coderunner .ace_editor {
     margin-bottom: 5px;
 }
 
+/* stylelint-disable declaration-no-important  */
+
 .que.coderunner button[id$=answer_run-btn] {
     color: whitesmoke !important;
     background-color: darkgreen !important;
     font-weight: bold !important;
     padding: 10px 40px !important;
 }
+
+/* stylelint-enable declaration-no-important  */
 
 .que.coderunner pre[id$=answer_run-output-text] {
     border-bottom: solid 5px darkgreen;
@@ -127,7 +131,7 @@ body#page-question-type-coderunner .ace_editor {
 }
 
 #page-question-type-coderunner div.coderunner-test-results td:last-child,
-#page-question-type-coderunner div.coderunner-test-results td:first-child
+#page-question-type-coderunner div.coderunner-test-results td:first-child,
 .que.coderunner div.coderunner-test-results td:last-child,
 .que.coderunner div.coderunner-test-results td:first-child {
     min-width: 16px;
@@ -171,7 +175,13 @@ body#page-question-type-coderunner .ace_editor {
 }
 
 .que.coderunner div.coderunner-test-results.good.precheck {
-    background: repeating-linear-gradient(0deg, #f0fff0, #f0fff0 8px, #d0ffd0 8px, #d0ffd0 16px);
+    background-image: repeating-linear-gradient(
+        0deg,
+        rgb(255, 255, 255, 0.5),
+        rgb(255, 255, 255, 0.5) 8px,
+        rgb(248, 241, 249, 0.5) 8px,
+        rgb(248, 241, 249, 0.5) 16px
+        );
 }
 
 .que.coderunner div.coderunner-test-results.bad,
@@ -335,6 +345,12 @@ body#page-question-type-coderunner .button-fullscreen img.icon {
     width: 15px;
     height: 15px;
 }
+
+
+.answer-changed {
+    filter: blur(1px) grayscale(70%) brightness(80%);
+}
+
 
 /* Editing form. */
 body#page-question-type-coderunner div.edit_code textarea {
