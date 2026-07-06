@@ -121,7 +121,7 @@ body#page-question-type-coderunner .ace_editor {
 }
 
 #page-question-type-coderunner div.coderunner-test-results td:last-child,
-#page-question-type-coderunner div.coderunner-test-results td:first-child
+#page-question-type-coderunner div.coderunner-test-results td:first-child,
 .que.coderunner div.coderunner-test-results td:last-child,
 .que.coderunner div.coderunner-test-results td:first-child {
     min-width: 16px;
