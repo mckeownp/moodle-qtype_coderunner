@@ -78,12 +78,16 @@ body#page-question-type-coderunner .ace_editor {
     margin-bottom: 5px;
 }
 
+/* stylelint-disable declaration-no-important  */
+
 .que.coderunner button[id$=answer_run-btn] {
     color: whitesmoke !important;
     background-color: darkgreen !important;
     font-weight: bold !important;
     padding: 10px 40px !important;
 }
+
+/* stylelint-enable declaration-no-important  */
 
 .que.coderunner pre[id$=answer_run-output-text] {
     border-bottom: solid 5px darkgreen;
