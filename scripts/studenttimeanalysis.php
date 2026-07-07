@@ -62,6 +62,7 @@ $PAGE->set_heading('CodeRunner: Student time-on-task analysis');
 $courseid     = optional_param('courseid', 0, PARAM_INT);
 $cmid         = optional_param('cmid', 0, PARAM_INT);  // 0 = all activities
 $groupid      = optional_param('groupid', 0, PARAM_INT);  // 0 = all groups
+$studentid    = optional_param('studentid', 0, PARAM_INT);  // 0 = whole cohort
 $startdatestr = optional_param('startdate', '', PARAM_TEXT);
 $enddatestr   = optional_param('enddate', '', PARAM_TEXT);
 $gapminutes   = optional_param('gapminutes', 30, PARAM_INT);
@@ -223,6 +224,49 @@ function get_course_groups($courseid) {
 }
 
 // -------------------------------------------------------------------------
+// Helper: students enrolled in a course, optionally scoped to a group.
+/**
+ * Returns a userid => "Lastname, Firstname" map of students in the course,
+ * filtered to the given group if groupid is non-zero.
+ *
+ * @param int $courseid
+ * @param int $groupid  0 = all students
+ * @return array  userid => "Lastname, Firstname"
+ */
+function get_course_students($courseid, $groupid = 0) {
+    global $DB;
+
+    $groupsql    = '';
+    $groupparams = [];
+    if ($groupid) {
+        $groupsql = 'AND ra.userid IN (SELECT gm.userid FROM {groups_members} gm WHERE gm.groupid = :groupid)';
+        $groupparams['groupid'] = $groupid;
+    }
+
+    $sql = "SELECT u.id, u.firstname, u.lastname
+              FROM {user} u
+              JOIN {role_assignments} ra  ON ra.userid    = u.id
+              JOIN {role}             r   ON r.id         = ra.roleid AND r.shortname = 'student'
+              JOIN {context}          ctx ON ctx.id       = ra.contextid
+                                        AND ctx.contextlevel = :ctxlevel
+                                        AND ctx.instanceid   = :courseid
+             WHERE u.deleted = 0
+               $groupsql
+          ORDER BY u.lastname, u.firstname";
+
+    $params = array_merge(
+        ['ctxlevel' => CONTEXT_COURSE, 'courseid' => $courseid],
+        $groupparams
+    );
+
+    $options = [];
+    foreach ($DB->get_records_sql($sql, $params) as $u) {
+        $options[$u->id] = $u->lastname . ', ' . $u->firstname;
+    }
+    return $options;
+}
+
+// -------------------------------------------------------------------------
 // Core analysis function.
 /**
  * Returns per-student stats and per-day cohort totals in a single pass.
@@ -245,7 +289,7 @@ function get_course_groups($courseid) {
  * @param int   $gapseconds  Idle-gap threshold in seconds
  * @return array  ['students' => [...], 'dailytotals' => [...]]
  */
-function analyse_course($courseid, $cmid, $groupid, $starttime, $endtime, $gapseconds) {
+function analyse_course($courseid, $cmid, $groupid, $starttime, $endtime, $gapseconds, $studentid = 0) {
     global $DB;
 
     // Exclude autosave events.
@@ -265,10 +309,13 @@ function analyse_course($courseid, $cmid, $groupid, $starttime, $endtime, $gapse
         $activityparams['activityctx'] = context_module::instance($cmid)->id;
     }
 
-    // Optional group filter.
+    // Student filter takes priority over group filter.
     $groupsql    = '';
     $groupparams = [];
-    if ($groupid) {
+    if ($studentid) {
+        $groupsql = 'AND l.userid = :filteruserid';
+        $groupparams['filteruserid'] = $studentid;
+    } else if ($groupid) {
         $groupsql = 'AND l.userid IN (SELECT gm.userid FROM {groups_members} gm WHERE gm.groupid = :groupid)';
         $groupparams['groupid'] = $groupid;
     }
@@ -410,14 +457,15 @@ if ($courseid && !isset($allowedcourses[$courseid])) {
     throw new \moodle_exception('accessdenied', 'admin');
 }
 
-// Build activity and group lists for the selected course (empty if no course chosen yet).
+// Build activity, group, and student lists for the selected course (empty if no course chosen yet).
 $activities = $courseid ? get_course_activities($courseid) : [];
 $groups     = $courseid ? get_course_groups($courseid) : [];
+$students   = $courseid ? get_course_students($courseid, $groupid) : [];
 
 // -------------------------------------------------------------------------
 // CSV download.
 if ($courseid && !$dateerror && $download) {
-    $analysisresult = analyse_course($courseid, $cmid, $groupid, $starttime, $endtime, $gapseconds);
+    $analysisresult = analyse_course($courseid, $cmid, $groupid, $starttime, $endtime, $gapseconds, $studentid);
     $results        = $analysisresult['students'];
     $course         = $DB->get_record('course', ['id' => $courseid], 'shortname', MUST_EXIST);
 
@@ -426,7 +474,9 @@ if ($courseid && !$dateerror && $download) {
         $activitylabel = '_' . clean_filename($activities[$cmid]);
     }
     $grouplabel = '';
-    if ($groupid && isset($groups[$groupid])) {
+    if ($studentid && isset($students[$studentid])) {
+        $grouplabel = '_' . clean_filename($students[$studentid]);
+    } else if ($groupid && isset($groups[$groupid])) {
         $grouplabel = '_' . clean_filename($groups[$groupid]);
     }
 
@@ -481,16 +531,29 @@ function showComputing() {
 if (indicator) indicator.style.display = 'none';
 if (form)      { form.style.pointerEvents = ''; form.style.opacity = ''; }
 
-// Reload the page when the course changes so activity/group dropdowns update.
+// Reload the page when the course changes so activity/group/student dropdowns update.
 // Drop 'submitted' so the reload does not trigger computation.
 document.getElementById('id_courseid').addEventListener('change', function() {
     var url = new URL(window.location.href);
     url.searchParams.set('courseid', this.value);
     url.searchParams.delete('cmid');
     url.searchParams.delete('groupid');
+    url.searchParams.delete('studentid');
     url.searchParams.delete('submitted');
     window.location.href = url.toString();
 });
+
+// Reload when the group changes so the student dropdown is re-scoped.
+var groupEl = document.getElementById('id_groupid');
+if (groupEl) {
+    groupEl.addEventListener('change', function() {
+        var url = new URL(window.location.href);
+        url.searchParams.set('groupid', this.value);
+        url.searchParams.delete('studentid');
+        url.searchParams.delete('submitted');
+        window.location.href = url.toString();
+    });
+}
 
 // Show computing state when the Analyse button is clicked.
 if (form) {
@@ -544,6 +607,20 @@ if ($courseid && !empty($groups)) {
         $groupid,
         ['0' => '-- All students --'],
         ['id' => 'id_groupid']
+    ));
+    echo html_writer::end_tag('tr');
+}
+
+// Student selector (shown once a course is selected; scoped by group if one is chosen).
+if ($courseid && !empty($students)) {
+    echo html_writer::start_tag('tr');
+    echo html_writer::tag('td', html_writer::tag('label', 'Student:', ['for' => 'id_studentid']));
+    echo html_writer::tag('td', html_writer::select(
+        $students,
+        'studentid',
+        $studentid,
+        ['0' => '-- All students --'],
+        ['id' => 'id_studentid']
     ));
     echo html_writer::end_tag('tr');
 }
@@ -628,16 +705,19 @@ if ($courseid && !$dateerror && $submitted) {
     $endlabel      = $enddatestr ?: '(end of logs)';
     $activitylabel = ($cmid && isset($activities[$cmid])) ? $activities[$cmid] : 'All activities';
     $grouplabel    = ($groupid && isset($groups[$groupid])) ? $groups[$groupid] : 'All students';
+    $studentlabel  = ($studentid && isset($students[$studentid])) ? $students[$studentid] : null;
 
     echo html_writer::tag(
         'p',
         "Analysing course ID <strong>$courseid</strong> &mdash; " .
         "activity: <strong>" . s($activitylabel) . "</strong> &mdash; " .
-        "group: <strong>" . s($grouplabel) . "</strong> &mdash; " .
-        "$startlabel to $endlabel &mdash; idle gap: <strong>{$gapminutes} min</strong>"
+        ($studentlabel
+            ? "student: <strong>" . s($studentlabel) . "</strong>"
+            : "group: <strong>" . s($grouplabel) . "</strong>") .
+        " &mdash; $startlabel to $endlabel &mdash; idle gap: <strong>{$gapminutes} min</strong>"
     );
 
-    $analysisresult = analyse_course($courseid, $cmid, $groupid, $starttime, $endtime, $gapseconds);
+    $analysisresult = analyse_course($courseid, $cmid, $groupid, $starttime, $endtime, $gapseconds, $studentid);
     $results        = $analysisresult['students'];
     $dailytotals    = $analysisresult['dailytotals'];
 
@@ -682,7 +762,13 @@ if ($courseid && !$dateerror && $submitted) {
             $canvasid  = html_writer::random_id('crta_');
             $labeljson = json_encode($chartlabels);
             $valuejson = json_encode($chartvalues);
-            $titlejson = json_encode("Daily activity \u{2014} cohort: $totalstudents students");
+            $charttitle = $studentlabel
+                ? "Daily activity \u{2014} $studentlabel"
+                : "Daily activity \u{2014} cohort: $totalstudents students";
+            $titlejson = json_encode($charttitle);
+            $yaxislabel = $studentlabel
+                ? 'Estimated hours on server/day'
+                : 'Estimated hours on server/student/day';
 
             $canvastag = html_writer::empty_tag('canvas', ['id' => $canvasid]);
             echo html_writer::tag(
@@ -727,7 +813,7 @@ require(['core/chartjs-lazy'], function(Chart) {
                     }
                 },
                 y: {
-                    title: { display: true, text: 'Estimated hours on server/student/day' },
+                    title: { display: true, text: '$yaxislabel' },
                     min: 0
                 }
             }
@@ -745,6 +831,7 @@ require(['core/chartjs-lazy'], function(Chart) {
             'courseid'   => $courseid,
             'cmid'       => $cmid,
             'groupid'    => $groupid,
+            'studentid'  => $studentid,
             'startdate'  => $startdatestr,
             'enddate'    => $enddatestr,
             'gapminutes' => $gapminutes,
