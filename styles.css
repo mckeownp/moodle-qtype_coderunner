@@ -348,7 +348,7 @@ body#page-question-type-coderunner .button-fullscreen img.icon {
 
 
 .answer-changed {
-    filter: blur(1px) grayscale(70%) brightness(80%);
+    filter: saturate(20%);
 }
 
 
