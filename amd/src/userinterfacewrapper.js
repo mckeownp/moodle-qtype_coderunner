@@ -242,6 +242,8 @@ define(['core/templates', 'core/notification'], function(Templates, Notification
                             const message = document.createElement("p");
                             message.textContent = "Results below are for a different answer to the answer above.";
                             message.style.color = "black";
+                            message.style.backgroundColor = "greenyellow";
+                            message.style.fontSize = "larger";
                             message.setAttribute("data-id", noticeId);
                             feedbackArea.parentNode.insertBefore(message, feedbackArea);
                             }
@@ -594,14 +596,6 @@ define(['core/templates', 'core/notification'], function(Templates, Notification
         if (screenModeButton) {
             return;
         }
-
-        // Workaround for a Moodle drawer bug (modal_backdrop.getAttachmentPoint).
-        // If the drawer backdrop module is first initialised while we are in
-        // fullscreen, its click handler binds to the fullscreen element and turns
-        // every click inside the editor into a closeAllDrawers() call. Fire a
-        // resize event now so the debounced closeOnResizeListener wakes up and
-        // initialises the backdrop while no element is fullscreen.
-        window.dispatchEvent(new Event('resize'));
 
         Templates.renderForPromise('qtype_coderunner/screenmode_button', {}).then(({html}) => {
             const screenModeButton = Templates.appendNodeContents(wrapperEditor, html, '')[0];
