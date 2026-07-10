@@ -1,7 +1,14 @@
 # CHANGE HISTORY
 
-
-### 23 June 2025, 5.9.3
+### July 10 2026, 5.10.0
+ * Add warning notice plus colour change to a result table when the answer changes from that
+   used to compute the result table.
+ * Add a new capability qtype/coderunner:management which defaults to editing teacher and allows
+   access to the management page.
+ * Add a navigation link to the "More" menu for users with the new capability, taking them
+   to the management.php page. 
+   
+### 23 June 2026, 5.9.3
 
  * Bug fix (workaround for Moodle core bug): the Ace UI "full screen" mode could result in an unusable Ace window after restoring to normal size. Clicking in the Ace window would repeatedly move focus to the right hand Block Drawer.
  * Bug fix: UI parameter field could not be twigged.

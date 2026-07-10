@@ -440,6 +440,9 @@ run using the \'Adaptive (no penalties)\' behaviour.';
 $string['maxfilesize'] = 'Max allowed file size (bytes)';
 $string['maxfilesize_help'] = 'Select the maximum file upload size (bytes). Allowing large file uploads with large classes can impact performance and and disk space on both Moodle and Jobe servers.';
 $string['memorylimit'] = 'MemLimit (MB)';
+$string['coderunner:management'] = 'Access CodeRunner management dashboard';
+$string['mgmt_navlink'] = 'CodeRunner management';
+$string['mgmt_needs_courseid'] = 'This page must be accessed via the CodeRunner management link in your course navigation, not directly by URL. Please go to your course and use the link from there.';
 $string['mgmt_cat_analytics_desc'] = 'Tools for analysing student engagement and quiz performance.';
 $string['mgmt_cat_analytics_title'] = 'Analytics';
 $string['mgmt_cat_dataexport_desc'] = 'Tools for exporting quiz attempt data for analysis and research.';
@@ -1148,6 +1151,7 @@ $string['stdin_help'] = 'The standard input to the test, seen by the template as
 $string['student_answer'] = 'Student answer';
 $string['submitbuttons'] = 'Submit buttons';
 $string['supportscripts'] = 'Support scripts';
+$string['supportscripts_desc'] = 'The <a href="{$a->link}">CodeRunner management page</a> provides links to several support scripts for managing CodeRunner questions, including a bulk tester that tests that sample answers for all questions in a given context are marked right.';
 $string['syntax_errors'] = 'Syntax Error(s)';
 
 // SCRATCHPAD UI Default text.

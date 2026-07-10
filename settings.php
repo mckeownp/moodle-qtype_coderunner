@@ -26,18 +26,14 @@ defined('MOODLE_INTERNAL') || die();
 use qtype_coderunner\constants;
 
 
-$links = [
-    get_string(
-        'bulkquestiontester',
-        'qtype_coderunner',
-        ['link' => (string) new moodle_url('/question/type/coderunner/scripts/bulktest.php')]
-    ),
-];
-
 $settings->add(new admin_setting_heading(
     'supportscripts',
     get_string('supportscripts', 'qtype_coderunner'),
-    '* ' . implode("\n* ", $links)
+    get_string(
+        'supportscripts_desc',
+        'qtype_coderunner',
+        ['link' => (string) new moodle_url('/question/type/coderunner/management.php')]
+    )
 ));
 
 $settings->add(new admin_setting_heading(
