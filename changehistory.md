@@ -1,5 +1,10 @@
 # CHANGE HISTORY
 
+### July 22 2026, 5.10.1
+ * Bump dependency in version.php in order to trigger update to the coderunner behaviour code,
+   which fixes the problem that the Precheck and Stop buttons were not initiating a scroll
+   back to the current question.
+
 ### July 10 2026, 5.10.0
  * Add warning notice plus colour change to a result table when the answer changes from that
    used to compute the result table.
