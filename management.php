@@ -30,11 +30,40 @@ use html_writer;
 use moodle_url;
 
 // Login and check permissions.
-$context = context_system::instance();
-require_login();
+// When reached via the course navigation link, courseid is provided and the
+// capability is checked in that course context (so editing teachers pass).
+// When accessed directly without a course, site-admin access is required.
+// Teachers who arrive without courseid (e.g. via a bookmarked direct URL) get
+// a friendly explanation rather than a raw access-denied exception.
+$courseid = optional_param('courseid', 0, PARAM_INT);
+if ($courseid) {
+    require_login($courseid);
+    $context = context_course::instance($courseid);
+    require_capability('qtype/coderunner:management', $context);
+} else {
+    require_login();
+    $context = context_system::instance();
+    if (!has_capability('qtype/coderunner:management', $context)) {
+        $PAGE->set_url('/question/type/coderunner/management.php');
+        $PAGE->set_context($context);
+        $PAGE->set_title(get_string('mgmt_page_title', 'qtype_coderunner'));
+        $PAGE->set_heading(get_string('mgmt_page_heading', 'qtype_coderunner'));
+        echo $OUTPUT->header();
+        echo $OUTPUT->notification(
+            get_string('mgmt_needs_courseid', 'qtype_coderunner'),
+            'notifymessage'
+        );
+        echo html_writer::link(
+            new moodle_url('/course/index.php'),
+            get_string('courses')
+        );
+        echo $OUTPUT->footer();
+        exit;
+    }
+}
 
 // Set up page.
-$PAGE->set_url('/question/type/coderunner/management.php');
+$PAGE->set_url('/question/type/coderunner/management.php', ['courseid' => $courseid]);
 $PAGE->set_context($context);
 $PAGE->set_title(get_string('mgmt_page_title', 'qtype_coderunner'));
 $PAGE->set_heading(get_string('mgmt_page_heading', 'qtype_coderunner'));

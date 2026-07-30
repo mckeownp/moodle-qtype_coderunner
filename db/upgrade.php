@@ -438,6 +438,13 @@ function xmldb_qtype_coderunner_upgrade($oldversion) {
         upgrade_plugin_savepoint(true, 2025071100, 'qtype', 'coderunner');
     }
 
+    if ($oldversion < 2026071001) {
+        // Install the new qtype/coderunner:management capability and assign it
+        // to the archetypes defined in db/access.php (editingteacher, manager).
+        update_capabilities('qtype_coderunner');
+        upgrade_plugin_savepoint(true, 2026071001, 'qtype', 'coderunner');
+    }
+
     require_once(__DIR__ . '/upgradelib.php');
     update_question_types();
 
