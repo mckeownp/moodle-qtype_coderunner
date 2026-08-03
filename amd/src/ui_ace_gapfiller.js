@@ -54,7 +54,7 @@
  * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
 
-define(['jquery'], function($) {
+define([], function() {
 
     var Range;  // Can't load this until ace has loaded.
     const fillChar = " ";
@@ -62,21 +62,22 @@ define(['jquery'], function($) {
     const ACE_LIGHT_THEME = 'ace/theme/textmate';
 
     /**
-     * Constructor for the Ace interface object
+     * Constructor for the Ace interface object.
+     * Stores parameters only; actual Ace initialisation happens in ready().
      * @param {string} textareaId The ID of the textarea html element.
      * @param {int} w The width of the text area in pixels.
      * @param {int} h The height of the text area in pixels.
      * @param {object} uiParams The UI parameter specifier object.
      */
     function AceGapfillerUi(textareaId, w, h, uiParams) {
-        this.textArea = $(document.getElementById(textareaId));
-        var wrapper = $(document.getElementById(textareaId + '_wrapper')),
-            focused = this.textArea[0] === document.activeElement,
-            lang = uiParams.lang,
-            t = this;  // For embedded callbacks.
-
-        let code = "";
+        this.textArea = document.getElementById(textareaId);
+        this.textareaId = textareaId;
+        this.wrapper = document.getElementById(textareaId + '_wrapper');
+        this.focused = this.textArea === document.activeElement;
         this.uiParams = uiParams;
+        this.lang = uiParams.lang;
+        this.w = w;
+        this.h = h;
         this.gaps = [];
         this.source = uiParams.ui_source || 'globalextra';
         this.nextGapIndex = 0;
@@ -84,211 +85,224 @@ define(['jquery'], function($) {
             alert('Invalid source for code in ui_ace_gapfiller');
             this.source = 'globalextra';
         }
-        if (this.source == 'globalextra') {
-            code = this.textArea.attr('data-globalextra');
-        } else {
-            code = this.textArea.attr('data-test0');
-        }
+        this.editNode = null;
+        this.editor = null;
+        this.fail = false;
+    }
 
-        try {
-            window.ace.require("ace/ext/language_tools");
-            Range = window.ace.require("ace/range").Range;
-            this.modelist = window.ace.require('ace/ext/modelist');
-
-            this.enabled = false;
-            this.contents_changed = false;
-            this.capturingTab = false;
-            this.clickInProgress = false;
-
-            this.editNode = $("<div></div>"); // Ace editor manages this
-            this.editNode.css({
-                resize: 'none',
-                height: h,
-                width: "100%"
-            });
-
-            this.editor = window.ace.edit(this.editNode.get(0));
-            if (this.textArea.prop('readonly')) {
-                this.editor.setReadOnly(true);
-            }
-
-            this.editor.setOptions({
-                displayIndentGuides: false,
-                dragEnabled: false,
-                enableBasicAutocompletion: true,
-                newLineMode: "unix",
-            });
-            this.editor.$blockScrolling = Infinity;
-
-            // Use the uiParams theme if provided else use light.
-            if (uiParams.theme) {
-                this.editor.setTheme("ace/theme/" + uiParams.theme);
-            } else {
-                this.editor.setTheme(ACE_LIGHT_THEME);
-            }
-
-            this.setLanguage(lang);
-
-            this.setEventHandlers(this.textArea);
-            this.captureTab();
-
-            // Try to tell Moodle about parts of the editor with z-index.
-            // It is hard to be sure if this is complete. ACE adds all its CSS using JavaScript.
-            // Here, we just deal with things that are known to cause a problem.
-            // Can't do these operations until editor has rendered. So ...
-            this.editor.renderer.on('afterRender', function() {
-                var gutter =  wrapper.find('.ace_gutter');
-                if (gutter.hasClass('moodle-has-zindex')) {
-                    return;  // So we only do what follows once.
-                }
-                gutter.addClass('moodle-has-zindex');
-
-                if (focused) {
-                    t.editor.focus();
-                    t.editor.navigateFileEnd();
-                }
-                t.aceLabel = wrapper.find('.answerprompt');
-                t.aceLabel.attr('for', 'ace_' + textareaId);
-
-                t.aceTextarea = wrapper.find('.ace_text-input');
-                t.aceTextarea.attr('id', 'ace_' + textareaId);
-            });
-
-            this.createGaps(code);
-
-            // Intercept commands sent to ace.
-            this.editor.commands.on("exec", function(e) {
-                let cursor = t.editor.selection.getCursor();
-                let commandName = e.command.name;
-                let selectionRange = t.editor.getSelectionRange();
-
-                let gap = t.findCursorGap(cursor);
-
-                if (commandName.startsWith("go")) {  // If command just moves the cursor then do nothing.
-                    if (gap !== null && commandName === "gotoright" && cursor.column === gap.range.start.column+gap.textSize) {
-                        // In this case we jump out of gap over the empty space that contains nothing that the user has entered.
-                        t.editor.moveCursorTo(cursor.row, gap.range.end.column+1);
-                    } else {
+    /**
+     * Initialise the Ace editor, polling until window.ace is available.
+     * Resolves when ready; rejects (after 3 s) if Ace never loads.
+     * @returns {Promise}
+     */
+    AceGapfillerUi.prototype.ready = function() {
+        const t = this;
+        const MAX_WAIT_MS = 3000;
+        const POLL_MS = 50;
+        return new Promise(function(resolve, reject) {
+            var elapsed = 0;
+            /**
+             * Poll until window.ace is available, then initialise the editor.
+             */
+            function tryInit() {
+                if (!window.ace) {
+                    elapsed += POLL_MS;
+                    if (elapsed >= MAX_WAIT_MS) {
+                        t.fail = true;
+                        reject(new Error('Ace editor not available'));
                         return;
                     }
+                    setTimeout(tryInit, POLL_MS);
+                    return;
                 }
+                try {
+                    const wrapper = t.wrapper;
+                    const focused = t.focused;
+                    const uiParams = t.uiParams;
+                    const lang = t.lang;
 
-                if (gap === null) {
-                    // Not in a gap
-                    if (commandName === "selectall") {
-                        t.editor.selection.selectAll();
+                    let code = "";
+                    if (t.source === 'globalextra') {
+                        code = t.textArea.dataset.globalextra;
+                    } else {
+                        code = t.textArea.dataset.test0;
                     }
 
-                } else if (commandName === "indent") {
-                    // Instead of indenting, move to next gap.
-                    let nextGap = t.gaps[(gap.index+1) % t.gaps.length];
-                    t.editor.moveCursorTo(nextGap.range.start.row, nextGap.range.start.column+nextGap.textSize);
-                    t.editor.selection.clearSelection(); // Clear selection.
+                    window.ace.require("ace/ext/language_tools");
+                    Range = window.ace.require("ace/range").Range;
+                    t.modelist = window.ace.require('ace/ext/modelist');
 
-                } else if (commandName === "selectall") {
-                    // Select all text in a gap if we are in a gap.
-                    t.editor.selection.setSelectionRange(new Range(gap.range.start.row,
-                                                         gap.range.start.column,
-                                                         gap.range.start.row,
-                                                         gap.range.end.column), false);
+                    t.enabled = false;
+                    t.contents_changed = false;
+                    t.capturingTab = false;
+                    t.clickInProgress = false;
 
-                } else if (t.editor.selection.isEmpty()) {
-                    // User is not selecting multiple characters.
-                    if (commandName === "insertstring") {
-                        let char = e.args;
-                        // Only allow user to insert 'valid' chars.
-                        if (validChars.test(char)) {
-                            gap.insertChar(t.gaps, cursor, char);
+                    t.editNode = document.createElement('div');
+                    t.editNode.style.resize = 'none';
+                    t.editNode.style.height = t.h + 'px';
+                    t.editNode.style.width = '100%';
+
+                    t.editor = window.ace.edit(t.editNode);
+                    if (t.textArea.readOnly) {
+                        t.editor.setReadOnly(true);
+                    }
+
+                    t.editor.setOptions({
+                        displayIndentGuides: false,
+                        dragEnabled: false,
+                        enableBasicAutocompletion: true,
+                        newLineMode: "unix",
+                    });
+                    t.editor.$blockScrolling = Infinity;
+
+                    if (uiParams.theme) {
+                        t.editor.setTheme("ace/theme/" + uiParams.theme);
+                    } else {
+                        t.editor.setTheme(ACE_LIGHT_THEME);
+                    }
+
+                    t.setLanguage(lang);
+                    t.setEventHandlers(t.textArea);
+                    t.captureTab();
+
+                    // Try to tell Moodle about parts of the editor with z-index.
+                    // Can't do these operations until editor has rendered. So ...
+                    t.editor.renderer.on('afterRender', function() {
+                        const gutter = wrapper.querySelector('.ace_gutter');
+                        if (!gutter || gutter.classList.contains('moodle-has-zindex')) {
+                            return;
                         }
-                    } else if (commandName === "backspace") {
-                        // Only delete chars that are actually in the gap.
-                        if (cursor.column > gap.range.start.column && gap.textSize > 0) {
-                            gap.deleteChar(t.gaps, {row: cursor.row, column: cursor.column-1});
+                        gutter.classList.add('moodle-has-zindex');
+                        if (focused) {
+                            t.editor.focus();
+                            t.editor.navigateFileEnd();
                         }
-                    } else if (commandName === "del") {
-                        // Only delete chars that are actually in the gap.
-                        if (cursor.column < gap.range.start.column + gap.textSize && gap.textSize > 0) {
-                            gap.deleteChar(t.gaps, cursor);
+                        t.aceLabel = wrapper.querySelector('.answerprompt');
+                        t.aceLabel?.setAttribute('for', 'ace_' + t.textareaId);
+                        t.aceTextarea = wrapper.querySelector('.ace_text-input');
+                        t.aceTextarea?.setAttribute('id', 'ace_' + t.textareaId);
+                    });
+
+                    t.createGaps(code);
+
+                    // Intercept commands sent to ace.
+                    t.editor.commands.on("exec", function(e) {
+                        let cursor = t.editor.selection.getCursor();
+                        let commandName = e.command.name;
+                        let selectionRange = t.editor.getSelectionRange();
+                        let gap = t.findCursorGap(cursor);
+
+                        if (commandName.startsWith("go")) {  // If command just moves the cursor then do nothing.
+                            if (gap !== null && commandName === "gotoright" &&
+                                    cursor.column === gap.range.start.column+gap.textSize) {
+                                // Jump out of gap over the empty space.
+                                t.editor.moveCursorTo(cursor.row, gap.range.end.column+1);
+                            } else {
+                                return;
+                            }
                         }
-                    }
-                    t.editor.selection.clearSelection(); // Keep selection clear.
 
-                } else if (!t.editor.selection.isEmpty() && gap.cursorInGap(selectionRange.start)
-                           && gap.cursorInGap(selectionRange.end)) {
-                    // User is selecting multiple characters and is in a gap.
-
-                    // These are the commands that remove the selected text.
-                    if (commandName === "insertstring" || commandName === "backspace"
-                        || commandName === "del" || commandName === "paste"
-                        || commandName === "cut") {
-
-                        gap.deleteRange(t.gaps, selectionRange.start.column, selectionRange.end.column);
-                        t.editor.selection.clearSelection(); // Clear selection.
-                    }
-
-                    if (commandName === "insertstring") {
-                        let char = e.args;
-                        if (validChars.test(char)) {
-                            gap.insertChar(t.gaps, selectionRange.start, char);
+                        if (gap === null) {
+                            if (commandName === "selectall") {
+                                t.editor.selection.selectAll();
+                            }
+                        } else if (commandName === "indent") {
+                            let nextGap = t.gaps[(gap.index+1) % t.gaps.length];
+                            t.editor.moveCursorTo(nextGap.range.start.row, nextGap.range.start.column+nextGap.textSize);
+                            t.editor.selection.clearSelection();
+                        } else if (commandName === "selectall") {
+                            t.editor.selection.setSelectionRange(new Range(gap.range.start.row,
+                                                                 gap.range.start.column,
+                                                                 gap.range.start.row,
+                                                                 gap.range.end.column), false);
+                        } else if (t.editor.selection.isEmpty()) {
+                            if (commandName === "insertstring") {
+                                let char = e.args;
+                                if (validChars.test(char)) {
+                                    gap.insertChar(t.gaps, cursor, char);
+                                }
+                            } else if (commandName === "backspace") {
+                                if (cursor.column > gap.range.start.column && gap.textSize > 0) {
+                                    gap.deleteChar(t.gaps, {row: cursor.row, column: cursor.column-1});
+                                }
+                            } else if (commandName === "del") {
+                                if (cursor.column < gap.range.start.column + gap.textSize && gap.textSize > 0) {
+                                    gap.deleteChar(t.gaps, cursor);
+                                }
+                            }
+                            t.editor.selection.clearSelection();
+                        } else if (!t.editor.selection.isEmpty() && gap.cursorInGap(selectionRange.start)
+                                   && gap.cursorInGap(selectionRange.end)) {
+                            if (commandName === "insertstring" || commandName === "backspace"
+                                || commandName === "del" || commandName === "paste"
+                                || commandName === "cut") {
+                                gap.deleteRange(t.gaps, selectionRange.start.column, selectionRange.end.column);
+                                t.editor.selection.clearSelection();
+                            }
+                            if (commandName === "insertstring") {
+                                let char = e.args;
+                                if (validChars.test(char)) {
+                                    gap.insertChar(t.gaps, selectionRange.start, char);
+                                }
+                            }
                         }
-                    }
-                }
 
-                // Paste text into gap.
-                if (gap !== null && commandName === "paste") {
-                    gap.insertText(t.gaps, selectionRange.start.column, e.args.text);
-                }
+                        if (gap !== null && commandName === "paste") {
+                            gap.insertText(t.gaps, selectionRange.start.column, e.args.text);
+                        }
 
-                e.preventDefault();
-                e.stopPropagation();
-            });
+                        e.preventDefault();
+                        e.stopPropagation();
+                    });
 
-            // Move cursor to where it should be if we click on a gap.
-            t.editor.selection.on('changeCursor', function() {
-                let cursor = t.editor.selection.getCursor();
-                let gap = t.findCursorGap(cursor);
-                if (gap !== null) {
-                    if (cursor.column > gap.range.start.column+gap.textSize) {
-                        t.editor.moveCursorTo(gap.range.start.row, gap.range.start.column+gap.textSize);
-                    }
-                }
-            });
+                    t.editor.selection.on('changeCursor', function() {
+                        let cursor = t.editor.selection.getCursor();
+                        let gap = t.findCursorGap(cursor);
+                        if (gap !== null) {
+                            if (cursor.column > gap.range.start.column+gap.textSize) {
+                                t.editor.moveCursorTo(gap.range.start.row, gap.range.start.column+gap.textSize);
+                            }
+                        }
+                    });
 
-            this.gapToSelect = null;    // Stores gap that has been selected with triple click.
-
-            // Select all text in gap on triple click within gap.
-            this.editor.on("tripleclick", function(e) {
-                let cursor = t.editor.selection.getCursor();
-                let gap = t.findCursorGap(cursor);
-                if (gap !== null) {
-                    t.editor.selection.setSelectionRange(new Range(gap.range.start.row,
-                                                                   gap.range.start.column,
-                                                                   gap.range.start.row,
-                                                                   gap.range.end.column), false);
-                    t.gapToSelect = gap;
-                    e.preventDefault();
-                    e.stopPropagation();
-                }
-            });
-
-            // Annoying hack to ensure the tripple click thing works.
-            this.editor.on("click", function(e) {
-                if (t.gapToSelect) {
-                    t.editor.moveCursorTo(t.gapToSelect.range.start.row, t.gapToSelect.range.start.column+t.gapToSelect.textSize);
                     t.gapToSelect = null;
-                    e.preventDefault();
-                    e.stopPropagation();
-                }
-            });
 
-            this.fail = false;
-            this.reload();
-        }
-        catch(err) {
-            // Something ugly happened. Probably ace editor hasn't been loaded
-            this.fail = true;
-        }
-    }
+                    t.editor.on("tripleclick", function(e) {
+                        let cursor = t.editor.selection.getCursor();
+                        let gap = t.findCursorGap(cursor);
+                        if (gap !== null) {
+                            t.editor.selection.setSelectionRange(new Range(gap.range.start.row,
+                                                                           gap.range.start.column,
+                                                                           gap.range.start.row,
+                                                                           gap.range.end.column), false);
+                            t.gapToSelect = gap;
+                            e.preventDefault();
+                            e.stopPropagation();
+                        }
+                    });
+
+                    // Annoying hack to ensure the triple click thing works.
+                    t.editor.on("click", function(e) {
+                        if (t.gapToSelect) {
+                            t.editor.moveCursorTo(t.gapToSelect.range.start.row,
+                                t.gapToSelect.range.start.column+t.gapToSelect.textSize);
+                            t.gapToSelect = null;
+                            e.preventDefault();
+                            e.stopPropagation();
+                        }
+                    });
+
+                    t.fail = false;
+                    t.reload();
+                    resolve();
+                } catch(err) {
+                    t.fail = true;
+                    reject(err);
+                }
+            }
+            tryInit();
+        });
+    };
 
     /**
      * The method that creates the gaps at all places containing the appropriate
@@ -385,8 +399,8 @@ define(['jquery'], function($) {
 
     // Sync to TextArea
     AceGapfillerUi.prototype.sync = function() {
-        if (this.fail) {
-            return; // Leave the text area alone if Ace load failed.
+        if (this.fail || !this.editor) {
+            return; // Leave the text area alone if Ace load failed or not yet ready.
         }
         let serialisation = [];  // A list of field values.
         let empty = true;
@@ -400,9 +414,9 @@ define(['jquery'], function($) {
             }
         }
         if (empty) {
-            this.textArea.val('');
+            this.textArea.value = '';
         } else {
-            this.textArea.val(JSON.stringify(serialisation));
+            this.textArea.value = JSON.stringify(serialisation);
         }
     };
 
@@ -412,7 +426,7 @@ define(['jquery'], function($) {
 
     // Reload the HTML fields from the given serialisation.
     AceGapfillerUi.prototype.reload = function() {
-        let content = this.textArea.val();
+        let content = this.textArea.value;
         if (content) {
             try {
                 let values = JSON.parse(content);
@@ -460,7 +474,7 @@ define(['jquery'], function($) {
 
         this.editor.on('blur', function() {
             if (t.contents_changed) {
-                t.textArea.trigger('change');
+                t.textArea.dispatchEvent(new Event('change'));
             }
         });
 
@@ -505,15 +519,13 @@ define(['jquery'], function($) {
 
     AceGapfillerUi.prototype.destroy = function () {
         this.sync();
-        var focused;
-        if (!this.fail) {
-            // Proceed only if this wrapper was correctly constructed
-            focused = this.editor.isFocused();
+        if (this.editor) {
+            const focused = this.editor.isFocused();
             this.editor.destroy();
-            $(this.editNode).remove();
+            this.editNode.remove();
             if (focused) {
                 this.textArea.focus();
-                this.textArea[0].selectionStart = this.textArea[0].value.length;
+                this.textArea.selectionStart = this.textArea.value.length;
             }
         }
     };
@@ -557,7 +569,7 @@ define(['jquery'], function($) {
     };
 
     AceGapfillerUi.prototype.resize = function(w, h) {
-        this.editNode.outerHeight(h);
+        this.editNode.style.height = h + 'px';
         this.editor.resize();
     };
 
