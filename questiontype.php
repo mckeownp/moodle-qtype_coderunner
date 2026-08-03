@@ -612,10 +612,13 @@ class qtype_coderunner extends question_type {
         if (qtype_coderunner_util::using_mod_qbank()) {
             // Code for Moodle >= 4.6.
             $frontpageqbank = question_bank_helper::get_default_open_instance_system_type(get_site());
+            if ($frontpageqbank === null) {
+                throw new coding_exception('prototype_contexts: no system-level question bank found');
+            }
             $contextids[] = $frontpageqbank->context->id;
             $course = $context->get_course_context(false);
-            $courseid = $course->instanceid;
             if ($course) {
+                $courseid = $course->instanceid;
                 $allcaps = [];  // We don't want to restrict access to prototypes by students.
                 $sharedbanks = question_bank_helper::get_activity_instances_with_shareable_questions([$courseid], [], $allcaps);
                 $privatebanks = question_bank_helper::get_activity_instances_with_private_questions([$courseid], [], $allcaps);
