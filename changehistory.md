@@ -1,5 +1,11 @@
 # CHANGE HISTORY
 
+### August 3, 2026, 5.10.2
+ * Refactor interface to UI plugins to allow asynchronous loading.
+ * Fix possible race problem in Ace editor loading that might theoretically result in wrongly laid-out text.
+ * Tweaks to improve robustess in the event of unexpected errors when loading prototypes.
+ * Tweak management script to remove redundant 'use' statements that might upset some style checkers.
+ 
 ### July 22 2026, 5.10.1
  * Bump dependency in version.php in order to trigger update to the coderunner behaviour code,
    which fixes the problem that the Precheck and Stop buttons were not initiating a scroll
