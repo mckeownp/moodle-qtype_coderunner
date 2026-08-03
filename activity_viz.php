@@ -131,7 +131,7 @@ if ($courseid > 0 && $date_from !== '' && $date_to !== '') {
             ));
             if (empty($member_ids)) {
                 // Group has no members — return empty data.
-                $chart_json = '{"labels":[],"counts":[]}';
+                $chart_json = '{"timestamps":[],"counts":[]}';
                 goto render;
             }
             [$in_sql, $in_params] = $DB->get_in_or_equal($member_ids);
