@@ -89,6 +89,8 @@ define([], function() {
                     setTimeout(tryInit, POLL_MS);
                     return;
                 }
+                // window.ace is available; wait for fonts before Ace measures character metrics.
+                document.fonts.ready.then(function() {
                 try {
                     const textarea = t.textarea;
                     const wrapper = t.wrapper;
@@ -172,6 +174,7 @@ define([], function() {
                     t.fail = true;
                     reject(err);
                 }
+                });
             }
             tryInit();
         });
