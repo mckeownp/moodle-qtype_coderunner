@@ -308,7 +308,7 @@ class qtype_coderunner_question extends question_graded_automatically {
             $this->mergeduiparameters = $this->evaluate_merged_ui_parameters();
         } catch (Exception $e) {
             $error = $e->getMessage();
-            $this->parameters = ["initerror" => "' . $error . '"];
+            $this->parameters = (object) ["initerror" => $error];
             $this->templateparamsjson = json_encode($this->parameters);
             $erroroninit = get_string('erroroninit', 'qtype_coderunner', ['error' => $error]);
             $this->initialisationerrormessage = $erroroninit;

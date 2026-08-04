@@ -188,7 +188,7 @@ class run_in_sandbox extends external_api {
             // Usecache set to false for these runs as we will never regrade them.
             $runresult = $sandbox->execute($sourcecode, $language, $stdin, $filesarray, $paramsarray, false);
         } catch (Exception $ex) {
-            throw new qtype_coderunner_exception("Attempt to run job failed with error {$ex->message}");
+            throw new qtype_coderunner_exception("Attempt to run job failed with error {$ex->getMessage()}");
         }
         $runresult->sandboxinfo = null; // Prevent leakage of info.
         return json_encode($runresult);
