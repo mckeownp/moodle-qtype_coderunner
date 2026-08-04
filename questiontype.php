@@ -1027,9 +1027,7 @@ class qtype_coderunner extends question_type {
     /** Utility func: remove all '\r' chars from $s and also trim trailing newlines */
     private function filter_crs($s) {
         $s = str_replace("\r", "", $s);
-        while (substr($s, strlen($s) - 1, 1) == '\n') {
-            $s = substr($s, 0, strlen($s) - 1);
-        }
+        $s = rtrim($s, "\n");
         return $s;
     }
 }
