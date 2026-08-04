@@ -155,7 +155,7 @@ class qtype_coderunner_util {
                     }
                     echo \html_writer::end_tag('ul');
                 }
-            } catch (exception $e) {
+            } catch (Exception $e) {
                 echo \html_writer::start_tag('ul');
                 echo \html_writer::start_tag('li');
                 $message = get_string('errorprocessingqbanksforcourse', 'qtype_coderunner', $course->name);
