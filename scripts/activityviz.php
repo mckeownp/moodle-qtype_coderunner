@@ -22,7 +22,7 @@
  * IP-address regular expression.
  *
  * Access it at:
- *   https://yourserver/question/type/coderunner/activity_viz.php
+ *   https://yourserver/question/type/coderunner/scripts/activityviz.php
  *
  * Requirements:
  *   - User must be logged in to Moodle.
@@ -34,12 +34,12 @@
  * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
 
-require_once(__DIR__ . '/../../../config.php');
+require_once(__DIR__ . '/../../../../config.php');
 
 require_login();   // Redirects to login page if not authenticated.
 
 $PAGE->set_context(context_system::instance());
-$PAGE->set_url(new moodle_url('/question/type/coderunner/activity_viz.php'));
+$PAGE->set_url(new moodle_url('/question/type/coderunner/scripts/activityviz.php'));
 $PAGE->set_title('Course Activity Visualiser');
 $PAGE->set_pagelayout('base');
 
@@ -174,12 +174,13 @@ function qtype_coderunner_activityviz_chart_json(
     }
     $rs->close();   // Always close recordsets to free the DB cursor.
 
-    // Fill gaps so the chart is continuous. Start from midnight of $datefrom
-    // so the x-axis always begins at 00:00, even if the first log entry is
-    // several hours into the day.
+    // Fill gaps so the chart is continuous, covering the full requested
+    // range: start from midnight of $datefrom and end at the last hour of
+    // $dateto, so trailing hours with no activity show as zero instead of
+    // truncating the chart early.
     if (!empty($buckets)) {
         $minhour = strtotime($datefrom . ' 00:00:00');
-        $maxhour = max(array_keys($buckets));
+        $maxhour = strtotime($dateto . ' 23:00:00');
         for ($h = $minhour; $h <= $maxhour; $h += 3600) {
             if (!isset($buckets[$h])) {
                 $buckets[$h] = [];
@@ -208,49 +209,42 @@ function qtype_coderunner_activityviz_chart_json(
 function qtype_coderunner_activityviz_css(): string {
     return <<<'CSS'
 <style>
-  @import url('https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500;700&display=swap');
-  @import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600&display=swap');
-  @import url('https://fonts.googleapis.com/css2?family=Syne:wght@700;800&display=swap');
-
   #av-wrap {
     max-width: 1020px;
     margin: 0 auto;
     padding: 24px 16px 48px;
-    font-family: 'DM Sans', 'Segoe UI', sans-serif;
-    color: #c8dff0;
+    font-family: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    color: #212529;
   }
 
   #av-wrap h1 {
-    font-family: 'Syne', sans-serif;
     font-size: clamp(20px, 3.5vw, 30px);
-    font-weight: 800;
-    color: #e8f4ff;
+    font-weight: 700;
+    color: #212529;
     margin: 0 0 4px;
-    letter-spacing: -0.4px;
   }
 
   #av-wrap .av-subtitle {
-    color: #4a7a9b;
-    font-family: 'DM Mono', monospace;
+    color: #6c757d;
     font-size: 13px;
     margin-bottom: 28px;
   }
 
   /* Panel. */
   .av-panel {
-    background: #111e2e;
-    border: 1px solid #1e3a5a;
-    border-radius: 12px;
+    background: #ffffff;
+    border: 1px solid #dee2e6;
+    border-radius: 8px;
     padding: 18px 22px;
     margin-bottom: 18px;
   }
 
   .av-panel-title {
     font-size: 11px;
-    font-family: 'DM Mono', monospace;
+    font-weight: 600;
     text-transform: uppercase;
-    letter-spacing: 0.08em;
-    color: #4a7a9b;
+    letter-spacing: 0.06em;
+    color: #6c757d;
     margin-bottom: 12px;
   }
 
@@ -272,19 +266,18 @@ function qtype_coderunner_activityviz_css(): string {
 
   .av-field label {
     font-size: 11px;
-    font-family: 'DM Mono', monospace;
+    font-weight: 600;
     text-transform: uppercase;
-    letter-spacing: 0.08em;
-    color: #4a7a9b;
+    letter-spacing: 0.06em;
+    color: #6c757d;
   }
 
   .av-field select {
-    background: #0d1520;
-    border: 1px solid #2a4060;
-    border-radius: 8px;
-    color: #a8d8ea;
+    background: #ffffff;
+    border: 1px solid #ced4da;
+    border-radius: 6px;
+    color: #212529;
     font-size: 13px;
-    font-family: 'DM Sans', sans-serif;
     padding: 8px 10px;
     outline: none;
     width: 100%;
@@ -292,12 +285,11 @@ function qtype_coderunner_activityviz_css(): string {
   }
 
   .av-field input[type=date] {
-    background: #0d1520;
-    border: 1px solid #2a4060;
-    border-radius: 8px;
-    color: #a8d8ea;
+    background: #ffffff;
+    border: 1px solid #ced4da;
+    border-radius: 6px;
+    color: #212529;
     font-size: 13px;
-    font-family: 'DM Sans', sans-serif;
     padding: 8px 10px;
     outline: none;
     width: 160px;
@@ -306,17 +298,15 @@ function qtype_coderunner_activityviz_css(): string {
 
   .av-field select:focus,
   .av-field input[type=date]:focus {
-    border-color: #4fc3f7;
+    border-color: #0f6cbf;
+    box-shadow: 0 0 0 0.2rem rgba(15, 108, 191, 0.25);
   }
 
-  input[type=date]::-webkit-calendar-picker-indicator { filter: invert(0.7); cursor: pointer; }
-
   .av-btn {
-    background: #0d4f8a;
-    border: 1px solid #2e6faa;
-    border-radius: 8px;
-    color: #a8d8ea;
-    font-family: 'DM Mono', monospace;
+    background: #0f6cbf;
+    border: 1px solid #0f6cbf;
+    border-radius: 6px;
+    color: #ffffff;
     font-size: 13px;
     font-weight: 500;
     padding: 9px 22px;
@@ -325,7 +315,7 @@ function qtype_coderunner_activityviz_css(): string {
     white-space: nowrap;
     align-self: flex-end;
   }
-  .av-btn:hover { background: #1565a0; }
+  .av-btn:hover { background: #0c5696; border-color: #0c5696; }
 
   /* Stats strip. */
   .av-stats {
@@ -336,9 +326,9 @@ function qtype_coderunner_activityviz_css(): string {
   }
 
   .av-stat {
-    background: #111e2e;
-    border: 1px solid #1e3a5a;
-    border-radius: 8px;
+    background: #ffffff;
+    border: 1px solid #dee2e6;
+    border-radius: 6px;
     padding: 10px 18px;
     flex: 1;
     min-width: 110px;
@@ -346,25 +336,24 @@ function qtype_coderunner_activityviz_css(): string {
 
   .av-stat-label {
     font-size: 10px;
-    font-family: 'DM Mono', monospace;
+    font-weight: 600;
     text-transform: uppercase;
-    letter-spacing: 0.08em;
-    color: #4a7a9b;
+    letter-spacing: 0.06em;
+    color: #6c757d;
   }
 
   .av-stat-value {
-    font-family: 'Syne', sans-serif;
     font-size: 22px;
     font-weight: 700;
-    color: #4fc3f7;
+    color: #0f6cbf;
     margin-top: 2px;
   }
 
   /* Chart area. */
   .av-chart-box {
-    background: #111e2e;
-    border: 1px solid #1e3a5a;
-    border-radius: 12px;
+    background: #ffffff;
+    border: 1px solid #dee2e6;
+    border-radius: 8px;
     padding: 24px 16px 16px;
     min-height: 320px;
     display: flex;
@@ -374,27 +363,24 @@ function qtype_coderunner_activityviz_css(): string {
   }
 
   .av-placeholder {
-    color: #2a4a6a;
-    font-family: 'DM Mono', monospace;
+    color: #adb5bd;
     font-size: 14px;
     text-align: center;
   }
 
   .av-footer-note {
     margin-top: 12px;
-    color: #2a4060;
+    color: #adb5bd;
     font-size: 11px;
-    font-family: 'DM Mono', monospace;
     text-align: center;
   }
 
   /* Notice. */
   .av-notice {
-    background: #1a2e1a;
-    border: 1px solid #2a5a2a;
-    border-radius: 8px;
-    color: #90c090;
-    font-family: 'DM Mono', monospace;
+    background: #cff4fc;
+    border: 1px solid #9eeaf9;
+    border-radius: 6px;
+    color: #055160;
     font-size: 13px;
     padding: 10px 16px;
     margin-bottom: 16px;
@@ -475,7 +461,7 @@ function qtype_coderunner_activityviz_form(
         $regexwarning = '';
         if (!$ipregexvalid) {
             $regexwarning = <<<'HTML'
-          <span style="color:#f48fb1; font-size:11px; font-family:'DM Mono',monospace">
+          <span style="color:#dc3545; font-size:11px">
             &#9888; Invalid regex &mdash; using .*
           </span>
 HTML;
@@ -521,7 +507,7 @@ HTML;
                  value="{$ipregexesc}"
                  placeholder="e.g. 10\.67\.28\..*"
                  spellcheck="false"
-                 style="font-family:'DM Mono',monospace; font-size:12px; width:200px">
+                 style="font-family:SFMono-Regular,Menlo,Monaco,Consolas,monospace; font-size:12px; width:200px">
 {$regexwarning}
         </div>
 
@@ -660,7 +646,7 @@ function qtype_coderunner_activityviz_script(string $chartjson): string {
     afterDraw(chart) {
       const { ctx, scales: { x, y } } = chart;
       const axisY = y.bottom;          // pixel Y of the x-axis line
-      const FONT_MONO = "'DM Mono', monospace";
+      const FONT_SANS = "system-ui, -apple-system, 'Segoe UI', Roboto, Arial, sans-serif";
 
       ctx.save();
       ctx.textAlign = 'center';
@@ -672,32 +658,32 @@ function qtype_coderunner_activityviz_script(string $chartjson): string {
         const xPx = x.getPixelForValue(i);
 
         if (lbl.isNewDay) {
-          // Tall cyan tick line
+          // Tall accent tick line
           ctx.beginPath();
           ctx.moveTo(xPx, axisY);
           ctx.lineTo(xPx, axisY + 7);
-          ctx.strokeStyle = '#4fc3f7';
+          ctx.strokeStyle = '#0f6cbf';
           ctx.lineWidth = 2;
           ctx.stroke();
           // Hour "00"
-          ctx.font = `500 11px ${FONT_MONO}`;
-          ctx.fillStyle = '#b0d4f0';
+          ctx.font = `500 11px ${FONT_SANS}`;
+          ctx.fillStyle = '#495057';
           ctx.fillText('00', xPx, axisY + 10);
           // Date below
-          ctx.font = `700 12px ${FONT_MONO}`;
-          ctx.fillStyle = '#e2eaf4';
+          ctx.font = `700 12px ${FONT_SANS}`;
+          ctx.fillStyle = '#212529';
           ctx.fillText(lbl.dateLabel, xPx, axisY + 24);
         } else {
           // Shorter dim tick
           ctx.beginPath();
           ctx.moveTo(xPx, axisY);
           ctx.lineTo(xPx, axisY + 4);
-          ctx.strokeStyle = '#3d6080';
+          ctx.strokeStyle = '#ced4da';
           ctx.lineWidth = 1;
           ctx.stroke();
           // Hour number
-          ctx.font = `400 11px ${FONT_MONO}`;
-          ctx.fillStyle = '#7aaecf';
+          ctx.font = `400 11px ${FONT_SANS}`;
+          ctx.fillStyle = '#6c757d';
           ctx.fillText(String(lbl.hh).padStart(2, '0'), xPx, axisY + 7);
         }
       });
@@ -714,8 +700,8 @@ function qtype_coderunner_activityviz_script(string $chartjson): string {
       labels: labels.map(l => l.fullLabel),   // used in tooltip
       datasets: [{
         data: counts,
-        backgroundColor: '#1565a0',
-        hoverBackgroundColor: '#4fc3f7',
+        backgroundColor: '#0f6cbf',
+        hoverBackgroundColor: '#0c5696',
         borderRadius: 3,
         borderSkipped: 'bottom',
       }]
@@ -728,13 +714,12 @@ function qtype_coderunner_activityviz_script(string $chartjson): string {
       plugins: {
         legend: { display: false },
         tooltip: {
-          backgroundColor: '#1a2332',
-          borderColor: '#2e4a6e',
-          borderWidth: 1,
-          titleColor: '#e0f0ff',
-          bodyColor: '#a8d8ea',
-          titleFont: { family: "'DM Mono', monospace", weight: '600', size: 13 },
-          bodyFont:  { family: "'DM Mono', monospace", size: 13 },
+          backgroundColor: '#212529',
+          borderWidth: 0,
+          titleColor: '#ffffff',
+          bodyColor: '#e9ecef',
+          titleFont: { weight: '600', size: 13 },
+          bodyFont:  { size: 13 },
           callbacks: {
             title: items => items[0].label,
             label: item => ` ${item.raw} distinct IP${item.raw !== 1 ? 's' : ''}`
@@ -744,23 +729,23 @@ function qtype_coderunner_activityviz_script(string $chartjson): string {
       scales: {
         x: {
           grid: { display: false },
-          border: { color: '#2e4a6e' },
+          border: { color: '#dee2e6' },
           ticks: { display: false },   // we draw our own via the plugin
         },
         y: {
           beginAtZero: true,
-          grid: { color: '#1a2e45', drawBorder: false },
+          grid: { color: '#e9ecef', drawBorder: false },
           border: { display: false },
           ticks: {
-            color: '#7aaecf',
-            font: { family: "'DM Mono', monospace", size: 11 },
+            color: '#6c757d',
+            font: { size: 11 },
             precision: 0,
           },
           title: {
             display: true,
             text: 'Distinct IPs',
-            color: '#7aaecf',
-            font: { family: "'DM Mono', monospace", size: 11 }
+            color: '#6c757d',
+            font: { size: 11 }
           }
         }
       }
@@ -890,7 +875,7 @@ echo qtype_coderunner_activityviz_css();
 echo <<<HTML
 <div id="av-wrap">
 
-  <h1>Course Activity <span style="color:#4fc3f7">Visualiser</span></h1>
+  <h1>Course Activity <span style="color:#0f6cbf">Visualiser</span></h1>
   <p class="av-subtitle">Distinct active IPs per hour &middot; teacher access required</p>
 
 {$body}
