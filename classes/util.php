@@ -140,18 +140,33 @@ class qtype_coderunner_util {
         foreach ($allcourses as $courseid => $course) {
             $coursecontext = \context_course::instance($courseid);
             $courseheadercallback($coursecontext->id, $course->name);
-            $allbanks = \qtype_coderunner\bulk_tester::get_all_qbanks_for_course($courseid);
-            if (count($allbanks) > 0) {
-                echo \html_writer::start_tag('ul');
-                foreach ($allbanks as $bank) {
-                    $contextid = $bank->contextid ?? $bank->cminfo->context->id;  // Need difft code for Moodle 5.2+.
-                    if (array_key_exists($contextid, $availablequestionsbycontext)) {
-                        $contextdata = $availablequestionsbycontext[$contextid];
-                        $name = $contextdata['name'];
-                        $numquestions = $contextdata['numquestions'];
-                        $contextcallback($contextid, $name, $numquestions);
+            try {
+                $allbanks = \qtype_coderunner\bulk_tester::get_all_qbanks_for_course($courseid);
+                if (count($allbanks) > 0) {
+                    echo \html_writer::start_tag('ul');
+                    foreach ($allbanks as $bank) {
+                        $contextid = $bank->contextid ?? $bank->cminfo->context->id;  // Need difft code for Moodle 5.2+.
+                        if (array_key_exists($contextid, $availablequestionsbycontext)) {
+                            $contextdata = $availablequestionsbycontext[$contextid];
+                            $name = $contextdata['name'];
+                            $numquestions = $contextdata['numquestions'];
+                            $contextcallback($contextid, $name, $numquestions);
+                        }
                     }
+                    echo \html_writer::end_tag('ul');
                 }
+            } catch (Exception $e) {
+                echo \html_writer::start_tag('ul');
+                echo \html_writer::start_tag('li');
+                $message = get_string('errorprocessingqbanksforcourse', 'qtype_coderunner', $course->name);
+                echo \html_writer::span($message, '', ['style' => 'background-color: #FFD1DC;']);
+                echo \html_writer::end_tag('li');
+                echo \html_writer::start_tag('ul');
+                echo \html_writer::start_tag('li');
+                $exceptiondetails = get_string('exceptionwas', 'qtype_coderunner', $e);
+                echo \html_writer::tag('em', $exceptiondetails);
+                echo \html_writer::end_tag('li');
+                echo \html_writer::end_tag('ul');
                 echo \html_writer::end_tag('ul');
             }
         }
