@@ -272,6 +272,18 @@ function qtype_coderunner_activityviz_css(): string {
     color: #6c757d;
   }
 
+  .av-field .av-checkbox-label {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    margin-top: 2px;
+    text-transform: none;
+    letter-spacing: normal;
+    font-weight: 400;
+    font-size: 12px;
+    cursor: pointer;
+  }
+
   .av-field select {
     background: #ffffff;
     border: 1px solid #ced4da;
@@ -422,6 +434,7 @@ function qtype_coderunner_activityviz_options(array $options, $selected): string
  * @param string $dateto end date (YYYY-MM-DD).
  * @param string $ipregex the current IP regex filter.
  * @param bool $ipregexvalid false if the user-supplied regex was invalid.
+ * @param bool $quizonly whether the activity list is restricted to quizzes.
  * @return string the form HTML.
  */
 function qtype_coderunner_activityviz_form(
@@ -434,7 +447,8 @@ function qtype_coderunner_activityviz_form(
     string $datefrom,
     string $dateto,
     string $ipregex,
-    bool $ipregexvalid
+    bool $ipregexvalid,
+    bool $quizonly
 ): string {
     $courselabels = [0 => '— select a course —'];
     foreach ($allcourses as $course) {
@@ -458,6 +472,7 @@ function qtype_coderunner_activityviz_form(
         $datefromesc = s($datefrom);
         $datetoesc = s($dateto);
         $ipregexesc = s($ipregex);
+        $quizonlychecked = $quizonly ? ' checked' : '';
         $regexwarning = '';
         if (!$ipregexvalid) {
             $regexwarning = <<<'HTML'
@@ -482,6 +497,15 @@ HTML;
           <select name="cmid" id="av-activity">
             {$activityoptions}
           </select>
+          <!-- quiz_only_shown tells a real uncheck (box was on the page,
+               but quiz_only is missing from the submission) apart from the
+               box simply not having existed yet on the previous page. -->
+          <input type="hidden" name="quiz_only_shown" value="1">
+          <label class="av-checkbox-label" for="av-quizonly">
+            <input type="checkbox" name="quiz_only" id="av-quizonly" value="1"{$quizonlychecked}
+                   onchange="this.form.submit()">
+            Quizzes only
+          </label>
         </div>
 
       </div><!-- .av-form-row (row 1) -->
@@ -582,7 +606,7 @@ HTML;
       <div class="av-placeholder" id="av-placeholder">{$placeholder}</div>
       <canvas id="av-chart" style="display:none; width:100%; max-height:400px"></canvas>
     </div>
-    <p class="av-footer-note">
+    <p class="av-footer-note" id="av-footer-note">
       Tick marks every 8 h &middot; date shown at midnight &middot; hover any bar for exact count
     </p>
 HTML;
@@ -640,6 +664,14 @@ function qtype_coderunner_activityviz_script(string $chartjson): string {
   // Custom X-axis tick plugin.
   // Draws our own tick marks + labels at midnight (date+00) and every 8 h.
   // Chart.js built-in ticks are hidden via ticks.display:false.
+  // The 8-hourly sub-ticks are dropped once the range spans too many days
+  // for them to stay legible, leaving just the day-boundary ticks.
+
+  const numDays = timestamps.length / 24;
+  const showHourTicks = numDays <= 15;
+  document.getElementById('av-footer-note').textContent = showHourTicks
+    ? 'Tick marks every 8 h · date shown at midnight · hover any bar for exact count'
+    : 'Tick marks at midnight (range too long to also show hourly ticks) · hover any bar for exact count';
 
   const customXTicks = {
     id: 'customXTicks',
@@ -653,6 +685,7 @@ function qtype_coderunner_activityviz_script(string $chartjson): string {
       ctx.textBaseline = 'top';
 
       labels.forEach((lbl, i) => {
+        if (!lbl.isNewDay && !showHourTicks) return;   // sub-ticks hidden on long ranges
         if (lbl.hh % 8 !== 0) return;   // only every 8 hours
 
         const xPx = x.getPixelForValue(i);
@@ -775,6 +808,15 @@ $datefrom = optional_param('date_from', '', PARAM_ALPHANUMEXT);
 $dateto = optional_param('date_to', '', PARAM_ALPHANUMEXT);
 $ipregex = optional_param('ip_regex', '10\.67\.28\..*', PARAM_RAW);
 
+// Quizzes-only defaults to checked, but browsers omit an unchecked checkbox
+// from the submitted query string, so we can't just default-to-1 on absence
+// (that would make an explicit uncheck impossible). The 'quiz_only_shown'
+// hidden field (rendered next to the checkbox once it exists on the page)
+// tells a real uncheck apart from the checkbox simply not having been on
+// the previously rendered page yet (e.g. the course was just selected).
+$quizonlyshown = optional_param('quiz_only_shown', 0, PARAM_INT) === 1;
+$quizonly = optional_param('quiz_only', $quizonlyshown ? 0 : 1, PARAM_INT) === 1;
+
 // Validate dates (expect YYYY-MM-DD).
 $dateregex = '/^\d{4}-\d{2}-\d{2}$/';
 if (!preg_match($dateregex, $datefrom)) {
@@ -810,14 +852,28 @@ if ($courseid > 0) {
     // Groups in this course.
     $groups = groups_get_all_groups($courseid);
 
-    // Course modules with human-readable names.
+    // Course modules with human-readable names. CodeRunner questions only
+    // ever appear in quizzes, so "Quizzes only" is checked by default to
+    // keep the list short; the module-type suffix is redundant once every
+    // entry is a quiz, so it's only shown when other activity types are mixed in.
     $modinfo = get_fast_modinfo($courseid);
     foreach ($modinfo->get_cms() as $cm) {
-        if ($cm->uservisible) {
-            $activities[$cm->id] = $cm->get_formatted_name() . ' (' . $cm->modname . ')';
+        if (!$cm->uservisible) {
+            continue;
         }
+        if ($quizonly && $cm->modname !== 'quiz') {
+            continue;
+        }
+        $activities[$cm->id] = $quizonly
+                ? $cm->get_formatted_name()
+                : $cm->get_formatted_name() . ' (' . $cm->modname . ')';
     }
     asort($activities);
+
+    // The previously selected activity may have been filtered out above.
+    if ($cmid > 0 && !array_key_exists($cmid, $activities)) {
+        $cmid = 0;
+    }
 
     // Set default date range: last 7 days.
     if ($datefrom === '') {
@@ -863,7 +919,8 @@ HTML;
         $datefrom,
         $dateto,
         $ipregex,
-        $ipregexvalid
+        $ipregexvalid,
+        $quizonly
     );
     $body .= "\n" . qtype_coderunner_activityviz_chart_box($courseid, $chartjson);
 }
